@@ -213,6 +213,48 @@ def compute(benches, target, picks, wins, years_back):
     }
 
 
+def compute_compare(benches, plans, wins, years_back):
+    """
+    Runs `compute()` once per plan (same benches/wins/years_back shared across
+    all of them) and merges each plan's buy-&-hold portfolio column into one
+    table per CAGR window + one volatility table, alongside the benchmarks.
+
+    plans: [{"name": str, "picks": [...], "target": {...}}, ...]
+    returns {"cagr": {years: DataFrame}, "vol": DataFrame}
+    """
+    if not plans:
+        raise EngineError("Add at least one plan.")
+
+    results = []
+    for p in plans:
+        name = p.get("name") or f"Plan {len(results) + 1}"
+        r = compute(benches, p.get("target", {}), p.get("picks", []), wins, years_back)
+        results.append((name, r))
+
+    bench_labels = [b["label"] for b in benches]
+
+    def merge_block(title, plan_col):
+        series_list = []
+        for name, r in results:
+            df = r["blocks"].get(title)
+            if df is not None and plan_col in df.columns:
+                series_list.append(df[plan_col].rename(name))
+        first_df = next((r["blocks"][title] for _, r in results if title in r["blocks"]), None)
+        if first_df is not None:
+            for b in bench_labels:
+                if b in first_df.columns:
+                    series_list.append(first_df[b].rename(b))
+        if not series_list:
+            raise EngineError(f"No data to merge for '{title}'")
+        merged = pd.concat(series_list, axis=1).sort_index()
+        merged.index.name = "year"
+        return merged
+
+    cagr = {y: merge_block(f"{y} YR CAGR %", "PORT_BH") for y in wins}
+    vol = merge_block("CALENDAR-YEAR VOLATILITY %", "PORTFOLIO")
+    return {"cagr": cagr, "vol": vol}
+
+
 def df_to_json(df):
     return {
         "index": [str(i) for i in df.index],

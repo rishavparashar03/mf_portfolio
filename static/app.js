@@ -335,15 +335,11 @@
     }
   }
 
-  async function exportXlsx() {
-    const payload = buildPayload(activePlan());
-    const status = document.getElementById("status");
-    const errorBox = document.getElementById("error-box");
-    errorBox.classList.add("hidden");
-    status.textContent = "Building Excel file…";
-    document.getElementById("export-btn").disabled = true;
+  async function downloadFile(url, payload, filename, statusEl, errorEl, btn) {
+    errorEl.classList.add("hidden");
+    btn.disabled = true;
     try {
-      const r = await fetch("/api/export", {
+      const r = await fetch(url, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       if (!r.ok) {
@@ -351,23 +347,50 @@
         throw new Error(data.error || "Export failed");
       }
       const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
+      const objUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `${activePlan().name.replace(/\s+/g, "_")}_matrix.xlsx`;
+      a.href = objUrl; a.download = filename;
       document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
-      status.textContent = "Downloaded.";
+      URL.revokeObjectURL(objUrl);
+      statusEl.textContent = "Downloaded.";
     } catch (err) {
-      errorBox.textContent = err.message;
-      errorBox.classList.remove("hidden");
-      status.textContent = "";
+      errorEl.textContent = err.message;
+      errorEl.classList.remove("hidden");
+      statusEl.textContent = "";
     } finally {
-      document.getElementById("export-btn").disabled = false;
+      btn.disabled = false;
     }
+  }
+
+  async function exportXlsx() {
+    const payload = buildPayload(activePlan());
+    const btn = document.getElementById("export-btn");
+    const filename = `${activePlan().name.replace(/\s+/g, "_")}_matrix.xlsx`;
+    document.getElementById("status").textContent = "Building Excel file…";
+    await downloadFile("/api/export", payload, filename,
+      document.getElementById("status"), document.getElementById("error-box"), btn);
+  }
+
+  async function exportCompareXlsx() {
+    const payload = {
+      benches: state.benches.filter(b => b.code && b.label),
+      plans: state.plans.map(p => ({
+        name: p.name,
+        picks: p.picks.filter(pk => pk.code && pk.label && pk.cls),
+        target: p.target,
+      })),
+      wins: getWins(),
+      years_back: getYearsBack(),
+    };
+    const btn = document.getElementById("compare-export-btn");
+    document.getElementById("compare-status").textContent = "Building Excel file…";
+    await downloadFile("/api/compare_export", payload, "mf_plans_compare.xlsx",
+      document.getElementById("compare-status"), document.getElementById("compare-error"), btn);
   }
 
   document.getElementById("run-btn").addEventListener("click", run);
   document.getElementById("export-btn").addEventListener("click", exportXlsx);
+  document.getElementById("compare-export-btn").addEventListener("click", exportCompareXlsx);
   document.getElementById("wins").value = (D.wins || [1, 2, 3, 5]).join(",");
   document.getElementById("years-back").value = D.years_back || 10;
 

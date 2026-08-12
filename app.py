@@ -4,7 +4,7 @@ import traceback
 from flask import Flask, request, jsonify, send_file, render_template
 import pandas as pd
 
-from engine import compute, result_to_json, search_scheme, EngineError
+from engine import compute, compute_compare, result_to_json, search_scheme, EngineError
 
 app = Flask(__name__)
 
@@ -66,6 +66,18 @@ def api_compute():
         return jsonify({"error": f"Unexpected error: {e}"}), 500
 
 
+def _blocks_to_xlsx(blocks, sheet_name="matrix"):
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as xl:
+        row = 0
+        for tag, d in blocks.items():
+            pd.DataFrame([[tag]]).to_excel(xl, sheet_name=sheet_name, startrow=row, index=False, header=False)
+            d.to_excel(xl, sheet_name=sheet_name, startrow=row + 1)
+            row += len(d) + 4
+    buf.seek(0)
+    return buf
+
+
 @app.route("/api/export", methods=["POST"])
 def api_export():
     payload = request.get_json(force=True) or {}
@@ -82,15 +94,31 @@ def api_export():
     blocks["CORRELATION (full period)"] = result["corr_full"]
     blocks["CORRELATION (last 3 years)"] = result["corr_last3"]
 
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as xl:
-        row = 0
-        for tag, d in blocks.items():
-            pd.DataFrame([[tag]]).to_excel(xl, sheet_name="matrix", startrow=row, index=False, header=False)
-            d.to_excel(xl, sheet_name="matrix", startrow=row + 1)
-            row += len(d) + 4
-    buf.seek(0)
+    buf = _blocks_to_xlsx(blocks)
     return send_file(buf, as_attachment=True, download_name="mf_matrix.xlsx",
+                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/api/compare_export", methods=["POST"])
+def api_compare_export():
+    payload = request.get_json(force=True) or {}
+    benches = payload.get("benches", [])
+    plans = payload.get("plans", [])
+    wins = payload.get("wins", [1, 2, 3, 5])
+    years_back = int(payload.get("years_back", 10))
+    try:
+        result = compute_compare(benches, plans, wins, years_back)
+    except EngineError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+    blocks = {f"{y} YR CAGR % — compare": df for y, df in result["cagr"].items()}
+    blocks["CALENDAR-YEAR VOLATILITY % — compare"] = result["vol"]
+
+    buf = _blocks_to_xlsx(blocks, sheet_name="compare")
+    return send_file(buf, as_attachment=True, download_name="mf_plans_compare.xlsx",
                       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 

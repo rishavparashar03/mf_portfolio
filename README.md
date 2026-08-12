@@ -18,15 +18,25 @@ Then open http://127.0.0.1:5000 in your browser.
 - `engine.py` — the computation engine, a direct port of the notebook's
   `cagr_matrix` / `vol_matrix` / correlation logic, parameterized by
   whatever benchmarks/picks/target you pass in (instead of hardcoded
-  constants).
+  constants). Also has `compute_compare()`, which runs `compute()` once per
+  plan and merges each plan's buy-&-hold CAGR/volatility column into one
+  table per window, and an in-process NAV cache so the same fund reused
+  across plans/benchmarks isn't refetched from `mfapi.in` every time.
 - `app.py` — Flask app: serves the frontend and exposes
-  `POST /api/compute` (returns the matrices as JSON) and
-  `POST /api/export` (returns an `.xlsx` file, same layout as the notebook's
-  `mf_matrix.xlsx`), plus `GET /api/search?q=` for fund-name lookup
+  `POST /api/compute` (one plan's matrices as JSON),
+  `POST /api/export` (one plan's `.xlsx`, same layout as the notebook's
+  `mf_matrix.xlsx`), `POST /api/compare_export` (merged CAGR/volatility
+  `.xlsx` across all plans), plus `GET /api/search?q=` for fund-name lookup
   (proxies `api.mfapi.in`, used by the "Search" button next to each row).
 - `templates/index.html` + `static/app.js` + `static/style.css` — the
-  frontend: editable tables for benchmarks/picks/target, a run button, and
-  rendered result tables.
+  frontend, with two tabs:
+  - **Builder** — named Plans (each with its own Picks + Target
+    allocation; per-pick "weight" optionally tilts the split within a
+    class, defaults to equal). Benchmarks and Options (years back, CAGR
+    windows) are shared across all plans.
+  - **Compare plans** — runs every plan against the shared benchmarks and
+    renders a merged table + Chart.js line chart per CAGR window and for
+    volatility, plus an "all plans" Excel export.
 
 ## Why a local app instead of a hosted page
 
