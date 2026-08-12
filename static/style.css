@@ -27,7 +27,47 @@ header {
   border-bottom: 1px solid var(--border);
 }
 header h1 { margin: 0 0 .25rem; font-size: 1.6rem; }
-header .sub { margin: 0; color: var(--text-dim); font-size: .9rem; }
+header .sub { margin: 0 0 1rem; color: var(--text-dim); font-size: .9rem; }
+
+.top-tabs { display: flex; gap: .4rem; }
+.top-tab {
+  background: none; border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 8px 8px 0 0; padding: .5rem 1.1rem; cursor: pointer; font-size: .88rem; font-weight: 600;
+  border-bottom: none; position: relative; top: 1px;
+}
+.top-tab.active { background: var(--panel); color: var(--text); border-color: var(--border); }
+.top-tab:not(.active):hover { color: var(--text); }
+
+.view.hidden { display: none !important; }
+
+.plans-strip { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.plan-tab {
+  display: flex; align-items: center; gap: .4rem;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: .3rem .3rem .3rem .7rem;
+}
+.plan-tab.active { border-color: var(--accent); }
+.plan-tab input {
+  background: none; border: none; color: var(--text); font-size: .85rem; font-weight: 600;
+  width: 6.5rem; padding: .1rem 0;
+}
+.plan-tab input:focus { outline: none; }
+.plan-tab .plan-del {
+  background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: .95rem;
+  padding: 0 .3rem; line-height: 1;
+}
+.plan-tab .plan-del:hover { color: var(--danger); }
+.btn-plan-add {
+  background: none; border: 1px dashed var(--border); color: var(--accent);
+  border-radius: 8px; padding: .4rem .8rem; cursor: pointer; font-size: .82rem;
+}
+.btn-plan-add:hover { border-color: var(--accent); }
+
+.plan-badge {
+  font-size: .68rem; font-weight: 500; color: var(--accent); background: rgba(91,140,255,.12);
+  border-radius: 5px; padding: .1rem .4rem; vertical-align: middle; margin-left: .4rem;
+}
+.plan-badge.shared { color: var(--text-dim); background: var(--panel-2); }
 
 main {
   max-width: 1100px;
@@ -154,6 +194,8 @@ table.editable input[type=text], table.editable input[type=number] {
 
 .block { margin-bottom: 1.75rem; }
 .block h3 { font-size: .95rem; margin: 0 0 .6rem; color: var(--text); }
+.chart-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: .75rem; height: 320px; }
+.compare-block { margin-bottom: 2.25rem; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 table.matrix { border-collapse: collapse; width: 100%; font-size: .82rem; white-space: nowrap; }
 table.matrix th, table.matrix td { padding: .45rem .65rem; text-align: right; border-bottom: 1px solid var(--border); }

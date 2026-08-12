@@ -15,12 +15,12 @@ DEFAULTS = {
     ],
     "target": {"gold": 0.30, "equity": 0.70},
     "picks": [
-        {"cls": "gold", "code": 119132, "label": "Gold"},
-        {"cls": "equity", "code": 149383, "label": "Axis"},
-        {"cls": "equity", "code": 147704, "label": "Motilal"},
-        {"cls": "equity", "code": 120357, "label": "Invesco"},
-        {"cls": "equity", "code": 120596, "label": "ICICI"},
-        {"cls": "equity", "code": 148404, "label": "BOI"},
+        {"cls": "gold", "code": 119132, "label": "Gold", "weight": 1},
+        {"cls": "equity", "code": 149383, "label": "Axis", "weight": 1},
+        {"cls": "equity", "code": 147704, "label": "Motilal", "weight": 1},
+        {"cls": "equity", "code": 120357, "label": "Invesco", "weight": 1},
+        {"cls": "equity", "code": 120596, "label": "ICICI", "weight": 1},
+        {"cls": "equity", "code": 148404, "label": "BOI", "weight": 1},
     ],
     "wins": [1, 2, 3, 5],
     "years_back": 10,
@@ -95,4 +95,6 @@ def api_export():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # threaded=True lets several plans' /api/compute calls (Compare tab) run
+    # concurrently instead of queueing one after another on the dev server.
+    app.run(debug=True, port=5000, threaded=True)

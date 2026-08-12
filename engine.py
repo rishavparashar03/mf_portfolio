@@ -3,6 +3,9 @@ Core computation engine — a direct, faithful port of the notebook's
 MF PORTFOLIO MATRIX logic (cell-2 / cell-3), parameterized so a web
 request can supply BENCHES / TARGET / PICKS instead of hardcoding them.
 """
+import threading
+import time
+
 import requests
 import numpy as np
 import pandas as pd
@@ -11,6 +14,13 @@ API = "https://api.mfapi.in/mf/{}"
 SEARCH = "https://api.mfapi.in/mf/search?q={}"
 TD = 252
 AVOID = ("idcw", "dividend", "payout", "bonus", "regular", "half yearly", "quarterly")
+
+# NAV history only updates once a day, so cache aggressively in-process. This
+# also means the same fund used in several plans (Compare) is only fetched
+# once per TTL window instead of once per plan.
+_CACHE_TTL = 15 * 60
+_nav_cache = {}
+_cache_lock = threading.Lock()
 
 
 class EngineError(Exception):
@@ -25,11 +35,17 @@ def search_scheme(q, n=15):
     return out
 
 
-def fetch_nav(code):
-    try:
-        j = requests.get(API.format(int(code)), timeout=30).json()
-    except Exception as e:
-        raise EngineError(f"code {code}: request failed ({e})")
+def _fetch_nav_uncached(code):
+    last_err = None
+    for attempt in range(2):  # one retry — mfapi.in occasionally times out under load
+        try:
+            j = requests.get(API.format(int(code)), timeout=45).json()
+            break
+        except Exception as e:
+            last_err = e
+            j = None
+    if j is None:
+        raise EngineError(f"code {code}: request failed ({last_err})")
     if not isinstance(j, dict) or "data" not in j or not j["data"]:
         raise EngineError(f"code {code}: no data returned by mfapi.in (check the scheme code)")
     d = pd.DataFrame(j["data"])
@@ -43,6 +59,20 @@ def fetch_nav(code):
     if s.empty:
         raise EngineError(f"code {code}: NAV series is empty after cleaning")
     return s, meta
+
+
+def fetch_nav(code):
+    code = int(code)
+    now = time.time()
+    with _cache_lock:
+        cached = _nav_cache.get(code)
+    if cached and now - cached[0] < _CACHE_TTL:
+        s, meta = cached[1], cached[2]
+        return s.copy(), meta
+    s, meta = _fetch_nav_uncached(code)
+    with _cache_lock:
+        _nav_cache[code] = (now, s, meta)
+    return s.copy(), meta
 
 
 def compute(benches, target, picks, wins, years_back):
@@ -70,6 +100,16 @@ def compute(benches, target, picks, wins, years_back):
         })
 
     CLS = {p["label"]: p["cls"] for p in picks}
+    # optional per-pick weight (relative share *within* its class). Default 1.0 for
+    # everyone -> equal split, same as before. Set a custom number on one/more picks
+    # (in the Picks table) to tilt the split within that class; unedited picks stay equal.
+    WEIGHT = {}
+    for p in picks:
+        try:
+            w = float(p.get("weight")) if p.get("weight") not in (None, "") else 1.0
+        except (TypeError, ValueError):
+            w = 1.0
+        WEIGHT[p["label"]] = w if w > 0 else 1.0
     missing = sorted(set(CLS.values()) - set(target.keys()))
     if missing:
         raise EngineError(f"No target weight given for class(es): {', '.join(missing)}")
@@ -100,8 +140,10 @@ def compute(benches, target, picks, wins, years_back):
         w = {}
         for c in present:
             mem = [k for k in live if CLS[k] == c]
+            mem_w = {k: WEIGHT.get(k, 1.0) for k in mem}
+            mem_tot = sum(mem_w.values()) or 1.0
             for k in mem:
-                w[k] = target[c] / tot / len(mem)
+                w[k] = target[c] / tot * (mem_w[k] / mem_tot)
         return pd.Series(w).reindex(avail.index).fillna(0.0)
 
     def growth(k, d0, d1):

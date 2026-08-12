@@ -10,11 +10,42 @@
 <header>
   <h1>MF Portfolio Matrix</h1>
   <p class="sub">CAGR &middot; Volatility &middot; Correlation — vs benchmarks, blended by your target allocation.</p>
+  <nav class="top-tabs">
+    <button type="button" class="top-tab active" data-view="builder">Builder</button>
+    <button type="button" class="top-tab" data-view="compare">Compare plans</button>
+  </nav>
 </header>
 
 <main>
+
+<div id="view-builder" class="view">
   <section class="card">
-    <h2>1. Benchmarks</h2>
+    <h2>Plans</h2>
+    <p class="hint">Each plan has its own picks &amp; target allocation. Benchmarks and options below are shared across all plans so comparisons stay apples-to-apples.</p>
+    <div id="plans-strip" class="plans-strip"></div>
+  </section>
+
+  <section class="card">
+    <h2>1. Picks <span id="active-plan-label" class="plan-badge"></span></h2>
+    <p class="hint">Your funds. Give each a class (e.g. gold, equity, debt) — classes must match the target allocation below. "Weight" is optional: leave it blank/1 to split each class equally across its picks; raise or lower it on a pick to tilt the split within that class.</p>
+    <table id="picks-table" class="editable">
+      <thead><tr><th>Class</th><th>Scheme code</th><th>Label</th><th>Weight (optional)</th><th>Find by name</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <button type="button" class="btn-add" data-add="picks">+ Add pick</button>
+  </section>
+
+  <section class="card">
+    <h2>2. Target allocation <span id="active-plan-label2" class="plan-badge"></span></h2>
+    <p class="hint">Weight per class. Must sum to ~100% across the classes used in your picks.</p>
+    <table id="target-table" class="editable">
+      <thead><tr><th>Class</th><th>Target weight %</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>3. Benchmarks <span class="plan-badge shared">shared</span></h2>
     <p class="hint">Index funds/ETFs used as comparison benchmarks (e.g. Nifty 50, Nifty 500).</p>
     <table id="benches-table" class="editable">
       <thead><tr><th>Scheme code</th><th>Label</th><th>Find by name</th><th></th></tr></thead>
@@ -24,32 +55,13 @@
   </section>
 
   <section class="card">
-    <h2>2. Picks</h2>
-    <p class="hint">Your funds. Give each a class (e.g. gold, equity, debt) — classes must match the target allocation below.</p>
-    <table id="picks-table" class="editable">
-      <thead><tr><th>Class</th><th>Scheme code</th><th>Label</th><th>Find by name</th><th></th></tr></thead>
-      <tbody></tbody>
-    </table>
-    <button type="button" class="btn-add" data-add="picks">+ Add pick</button>
-  </section>
-
-  <section class="card">
-    <h2>3. Target allocation</h2>
-    <p class="hint">Weight per class. Must sum to ~100% across the classes used in your picks.</p>
-    <table id="target-table" class="editable">
-      <thead><tr><th>Class</th><th>Target weight %</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </section>
-
-  <section class="card">
-    <h2>4. Options</h2>
+    <h2>4. Options <span class="plan-badge shared">shared</span></h2>
     <div class="options-row">
       <label>Years back <input type="number" id="years-back" min="1" max="25" value="10"></label>
       <label>CAGR windows (years, comma separated) <input type="text" id="wins" value="1,2,3,5"></label>
     </div>
     <div class="actions">
-      <button type="button" id="run-btn" class="btn-primary">Run analysis</button>
+      <button type="button" id="run-btn" class="btn-primary">Run analysis (this plan)</button>
       <button type="button" id="export-btn" class="btn-secondary">Download Excel</button>
       <span id="status"></span>
     </div>
@@ -63,6 +75,21 @@
   </section>
 
   <section id="results"></section>
+</div>
+
+<div id="view-compare" class="view hidden">
+  <section class="card">
+    <h2>Compare plans</h2>
+    <p class="hint">Runs every plan above against the shared benchmarks/options, then lines up each plan's buy-&amp;-hold portfolio CAGR and volatility side by side, plus a chart per window.</p>
+    <div class="actions">
+      <button type="button" id="compare-btn" class="btn-primary">Run comparison</button>
+      <span id="compare-status"></span>
+    </div>
+  </section>
+  <section id="compare-error" class="error hidden"></section>
+  <section id="compare-results"></section>
+</div>
+
 </main>
 
 <div id="search-modal" class="modal hidden">
@@ -76,6 +103,7 @@
 </div>
 
 <script>window.__DEFAULTS__ = {{ defaults | tojson }};</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
