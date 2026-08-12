@@ -45,7 +45,13 @@
     plansStrip.appendChild(addBtn);
 
     document.querySelectorAll("[data-plan-name]").forEach(inp => {
-      inp.addEventListener("click", (e) => e.stopPropagation());
+      const id = Number(inp.dataset.planName);
+      inp.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // clicking the name of a plan that isn't active switches to it first;
+        // clicking the already-active plan's name just places the caret to rename it.
+        if (id !== state.activePlanId) selectPlan(id);
+      });
       inp.addEventListener("input", (e) => {
         const plan = state.plans.find(p => p.id === Number(e.target.dataset.planName));
         if (plan) { plan.name = e.target.value; updatePlanLabels(); }
