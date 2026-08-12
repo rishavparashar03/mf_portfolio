@@ -105,7 +105,7 @@ table.editable th {
   border-bottom: 1px solid var(--border);
 }
 table.editable td { padding: .3rem .5rem; }
-table.editable input[type=text], table.editable input[type=number] {
+table.editable input[type=text], table.editable input[type=number], table.editable select {
   width: 100%;
   background: var(--panel-2);
   border: 1px solid var(--border);

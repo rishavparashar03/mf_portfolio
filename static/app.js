@@ -115,10 +115,25 @@
     return tr;
   }
 
+  const CLASS_PRESETS = ["debt", "equity", "gold & silver", "commodity", "thematic"];
+  function titleCase(s) {
+    return s.replace(/\b\w/g, c => c.toUpperCase());
+  }
+  function classSelectHtml(currentCls) {
+    const cls = (currentCls || "").trim();
+    const clsLower = cls.toLowerCase();
+    const isPreset = CLASS_PRESETS.some(p => p === clsLower);
+    const presetOptions = CLASS_PRESETS.map(p =>
+      `<option value="${p}" ${p === clsLower ? "selected" : ""}>${titleCase(p)}</option>`).join("");
+    const customOption = (cls && !isPreset) ? `<option value="${cls}" selected>${cls}</option>` : "";
+    const placeholder = `<option value="" ${cls ? "" : "selected"} disabled hidden>Choose…</option>`;
+    return `<select data-f="cls">${placeholder}${presetOptions}${customOption}<option value="__new__">+ Add new…</option></select>`;
+  }
+
   function rowTemplatePick(row, idx) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input type="text" data-f="cls" value="${row.cls ?? ""}"></td>
+      <td>${classSelectHtml(row.cls)}</td>
       <td><input type="number" data-f="code" value="${row.code ?? ""}"></td>
       <td><input type="text" data-f="label" value="${row.label ?? ""}"></td>
       <td><input type="number" step="0.1" min="0" placeholder="1" data-f="weight" value="${row.weight ?? ""}"></td>
@@ -229,7 +244,7 @@
 
   document.addEventListener("input", (e) => {
     const f = e.target.dataset.f;
-    if (f) {
+    if (f && e.target.tagName !== "SELECT") {
       const tr = e.target.closest("tr");
       const table = e.target.closest("table");
       const idx = Array.from(table.tBodies[0].children).indexOf(tr);
@@ -237,8 +252,7 @@
       let val = e.target.value;
       if (f === "code" || f === "weight") val = val ? Number(val) : "";
       list[idx][f] = val;
-      if (table.id === "picks-table" && f === "cls") syncTargetClasses();
-      if (table.id === "picks-table" && (f === "weight" || f === "cls")) updateEffectivePercents();
+      if (table.id === "picks-table" && f === "weight") updateEffectivePercents();
     }
     if (e.target.dataset.cls !== undefined) {
       activePlan().target[e.target.dataset.cls] = Number(e.target.value || 0) / 100;
@@ -249,6 +263,24 @@
       activePlan().investment = Number(e.target.value || 0);
       updateEffectivePercents();
     }
+  });
+
+  // the Class column is a <select> (with a "+ Add new..." escape hatch), handled
+  // separately from the generic text-input delegation above.
+  document.addEventListener("change", (e) => {
+    if (e.target.tagName !== "SELECT" || e.target.dataset.f !== "cls") return;
+    const tr = e.target.closest("tr");
+    const idx = Array.from(picksBody.children).indexOf(tr);
+    const plan = activePlan();
+    if (e.target.value === "__new__") {
+      const name = (prompt("New class name:") || "").trim();
+      plan.picks[idx].cls = name || plan.picks[idx].cls || "";
+      renderPicks();
+      return;
+    }
+    plan.picks[idx].cls = e.target.value;
+    syncTargetClasses();
+    updateEffectivePercents();
   });
 
   document.addEventListener("click", (e) => {
