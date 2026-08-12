@@ -108,9 +108,9 @@
   function rowTemplateBench(row, idx) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><input type="number" data-f="code" value="${row.code ?? ""}"></td>
-      <td><input type="text" data-f="label" value="${row.label ?? ""}"></td>
-      <td><button type="button" class="row-find" data-list="benches" data-idx="${idx}">Search</button></td>
+      <td data-label="Scheme code"><input type="number" data-f="code" value="${row.code ?? ""}"></td>
+      <td data-label="Label"><input type="text" data-f="label" value="${row.label ?? ""}"></td>
+      <td data-label="Find by name"><button type="button" class="row-find" data-list="benches" data-idx="${idx}">Search</button></td>
       <td><button type="button" class="row-del" data-list="benches" data-idx="${idx}">&times;</button></td>`;
     return tr;
   }
@@ -133,12 +133,12 @@
   function rowTemplatePick(row, idx) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${classSelectHtml(row.cls)}</td>
-      <td><input type="number" data-f="code" value="${row.code ?? ""}"></td>
-      <td><input type="text" data-f="label" value="${row.label ?? ""}"></td>
-      <td><input type="number" step="0.1" min="0" placeholder="1" data-f="weight" value="${row.weight ?? ""}"></td>
-      <td data-eff style="color:var(--text-dim)">—</td>
-      <td><button type="button" class="row-find" data-list="picks" data-idx="${idx}">Search</button></td>
+      <td data-label="Class">${classSelectHtml(row.cls)}</td>
+      <td data-label="AMFI Code"><input type="number" data-f="code" value="${row.code ?? ""}"></td>
+      <td data-label="Label"><input type="text" data-f="label" value="${row.label ?? ""}"></td>
+      <td data-label="Weight"><input type="number" step="0.1" min="0" placeholder="1" data-f="weight" value="${row.weight ?? ""}"></td>
+      <td data-eff data-label="Amount (₹)" style="color:var(--text-dim)">—</td>
+      <td data-label="Find by name"><button type="button" class="row-find" data-list="picks" data-idx="${idx}">Search</button></td>
       <td><button type="button" class="row-del" data-list="picks" data-idx="${idx}">&times;</button></td>`;
     return tr;
   }
@@ -171,13 +171,13 @@
     targetBody.innerHTML = "";
     const totalRow = document.createElement("tr");
     totalRow.className = "total-row";
-    totalRow.innerHTML = `<td><strong>Total</strong></td><td id="target-total-value"></td>`;
+    totalRow.innerHTML = `<td data-label="Class"><strong>Total</strong></td><td data-label="Target weight %" id="target-total-value"></td>`;
     targetBody.appendChild(totalRow);
     Object.keys(plan.target).forEach(cls => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${cls}</td>
-        <td><input type="number" step="0.1" min="0" max="100" data-cls="${cls}" value="${(plan.target[cls] * 100).toFixed(1)}"></td>`;
+        <td data-label="Class">${cls}</td>
+        <td data-label="Target weight %"><input type="number" step="0.1" min="0" max="100" data-cls="${cls}" value="${(plan.target[cls] * 100).toFixed(1)}"></td>`;
       targetBody.appendChild(tr);
     });
     if (Object.keys(plan.target).length === 0) {
