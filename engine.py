@@ -12,6 +12,7 @@ import pandas as pd
 
 API = "https://api.mfapi.in/mf/{}"
 SEARCH = "https://api.mfapi.in/mf/search?q={}"
+ALL_SCHEMES = "https://api.mfapi.in/mf"
 TD = 252
 AVOID = ("idcw", "dividend", "payout", "bonus", "regular", "half yearly", "quarterly")
 
@@ -22,17 +23,70 @@ _CACHE_TTL = 15 * 60
 _nav_cache = {}
 _cache_lock = threading.Lock()
 
+# mfapi.in's own /search endpoint round-trips ~1-1.5s per call, which reads as
+# "very slow" when it fires on every keystroke. Instead, pull the full list of
+# ~30k schemes ONCE (a few MB, a few seconds) and search it in-memory after
+# that -- effectively instant, and matches multi-word queries in any order
+# ("hdfc gold" == "gold hdfc"), unlike a plain substring search.
+_SCHEMES_TTL = 24 * 60 * 60
+_schemes_cache = {"data": None, "ts": 0, "loading": False}
+_schemes_lock = threading.Lock()
+
 
 class EngineError(Exception):
     pass
 
 
 def search_scheme(q, n=15):
+    """Fallback: proxies mfapi.in's own (slower) search directly."""
     r = requests.get(SEARCH.format(q), timeout=30).json()
     out = []
     for x in r[:n]:
         out.append({"schemeCode": x.get("schemeCode"), "schemeName": x.get("schemeName")})
     return out
+
+
+def _load_all_schemes():
+    data = requests.get(ALL_SCHEMES, timeout=60).json()
+    with _schemes_lock:
+        _schemes_cache["data"] = data
+        _schemes_cache["ts"] = time.time()
+        _schemes_cache["loading"] = False
+
+
+def prime_scheme_cache_async():
+    """Kick off the one-time full-list fetch in the background (call at app startup)."""
+    with _schemes_lock:
+        if _schemes_cache["loading"] or _schemes_cache["data"] is not None:
+            return
+        _schemes_cache["loading"] = True
+    threading.Thread(target=_load_all_schemes, daemon=True).start()
+
+
+def search_scheme_fast(q, n=15):
+    with _schemes_lock:
+        data = _schemes_cache["data"]
+        stale = data is None or (time.time() - _schemes_cache["ts"] > _SCHEMES_TTL)
+        loading = _schemes_cache["loading"]
+    if stale and not loading:
+        prime_scheme_cache_async()
+    if data is None:
+        # cache not warm yet (e.g. right after startup) -- fall back once so
+        # the user still gets results, cache will be instant next time.
+        return search_scheme(q, n)
+
+    tokens = [t for t in q.lower().split() if t]
+    if not tokens:
+        return []
+    scored = []
+    for x in data:
+        name = x.get("schemeName") or ""
+        name_lower = name.lower()
+        if all(t in name_lower for t in tokens):
+            first_pos = min(name_lower.find(t) for t in tokens)
+            scored.append((first_pos, len(name), x))
+    scored.sort(key=lambda r: (r[0], r[1]))
+    return [{"schemeCode": x.get("schemeCode"), "schemeName": x.get("schemeName")} for _, _, x in scored[:n]]
 
 
 def _fetch_nav_uncached(code):

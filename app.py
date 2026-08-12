@@ -4,9 +4,10 @@ import traceback
 from flask import Flask, request, jsonify, send_file, render_template
 import pandas as pd
 
-from engine import compute, compute_compare, result_to_json, search_scheme, EngineError
+from engine import compute, compute_compare, result_to_json, search_scheme_fast, prime_scheme_cache_async, EngineError
 
 app = Flask(__name__)
+prime_scheme_cache_async()  # warm the full-scheme-list cache in the background so search is fast from the first real query
 
 DEFAULTS = {
     "benches": [
@@ -38,7 +39,7 @@ def api_search():
     if not q:
         return jsonify([])
     try:
-        return jsonify(search_scheme(q))
+        return jsonify(search_scheme_fast(q))
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 

@@ -116,6 +116,7 @@
       <td><input type="number" data-f="code" value="${row.code ?? ""}"></td>
       <td><input type="text" data-f="label" value="${row.label ?? ""}"></td>
       <td><input type="number" step="0.1" min="0" placeholder="1" data-f="weight" value="${row.weight ?? ""}"></td>
+      <td data-eff style="color:var(--text-dim)">—</td>
       <td><button type="button" class="row-find" data-list="picks" data-idx="${idx}">Search</button></td>
       <td><button type="button" class="row-del" data-list="picks" data-idx="${idx}">&times;</button></td>`;
     return tr;
@@ -130,6 +131,7 @@
     picksBody.innerHTML = "";
     activePlan().picks.forEach((row, idx) => picksBody.appendChild(rowTemplatePick(row, idx)));
     syncTargetClasses();
+    updateEffectivePercents();
   }
 
   function syncTargetClasses() {
@@ -154,6 +156,53 @@
     if (Object.keys(plan.target).length === 0) {
       targetBody.innerHTML = `<tr><td colspan="2" style="color:var(--text-dim)">Add a pick with a class to define targets.</td></tr>`;
     }
+    const totalRow = document.createElement("tr");
+    totalRow.innerHTML = `<td><strong>Total</strong></td><td id="target-total-value"></td>`;
+    targetBody.appendChild(totalRow);
+    updateTargetTotal();
+  }
+
+  function updateTargetTotal() {
+    const plan = activePlan();
+    const total = Object.values(plan.target).reduce((a, b) => a + Number(b || 0), 0) * 100;
+    const el = document.getElementById("target-total-value");
+    if (!el) return;
+    el.textContent = total.toFixed(1) + "%";
+    el.style.color = Math.abs(total - 100) < 0.05 ? "var(--pos)" : "var(--danger)";
+  }
+
+  // effective % of the WHOLE portfolio each pick ends up at, given its
+  // class's target weight and how that class's weight is split among its picks.
+  function effectivePercents(plan) {
+    const classSum = {};
+    plan.picks.forEach(p => {
+      const cls = (p.cls || "").trim();
+      if (!cls) return;
+      const w = (p.weight === "" || p.weight == null || isNaN(Number(p.weight)) || Number(p.weight) <= 0) ? 1 : Number(p.weight);
+      classSum[cls] = (classSum[cls] || 0) + w;
+    });
+    return plan.picks.map(p => {
+      const cls = (p.cls || "").trim();
+      if (!cls || !classSum[cls] || !plan.target[cls]) return null;
+      const w = (p.weight === "" || p.weight == null || isNaN(Number(p.weight)) || Number(p.weight) <= 0) ? 1 : Number(p.weight);
+      return plan.target[cls] * (w / classSum[cls]) * 100;
+    });
+  }
+
+  function updateEffectivePercents() {
+    const plan = activePlan();
+    const eff = effectivePercents(plan);
+    document.querySelectorAll("#picks-table tbody tr").forEach((tr, idx) => {
+      const cell = tr.querySelector("[data-eff]");
+      if (!cell) return;
+      if (eff[idx] == null) {
+        cell.textContent = "—";
+        cell.style.color = "var(--text-dim)";
+      } else {
+        cell.textContent = eff[idx].toFixed(1) + "%";
+        cell.style.color = "var(--text)";
+      }
+    });
   }
 
   function listFor(tableId) {
@@ -171,9 +220,12 @@
       if (f === "code" || f === "weight") val = val ? Number(val) : "";
       list[idx][f] = val;
       if (table.id === "picks-table" && f === "cls") syncTargetClasses();
+      if (table.id === "picks-table" && (f === "weight" || f === "cls")) updateEffectivePercents();
     }
     if (e.target.dataset.cls !== undefined) {
       activePlan().target[e.target.dataset.cls] = Number(e.target.value || 0) / 100;
+      updateTargetTotal();
+      updateEffectivePercents();
     }
   });
 

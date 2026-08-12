@@ -29,7 +29,7 @@
     <h2>1. Picks <span id="active-plan-label" class="plan-badge"></span></h2>
     <p class="hint">Your funds. Give each a class (e.g. gold, equity, debt) — classes must match the target allocation below. "Weight" is optional: leave it blank/1 to split each class equally across its picks; raise or lower it on a pick to tilt the split within that class.</p>
     <table id="picks-table" class="editable">
-      <thead><tr><th>Class</th><th>Scheme code</th><th>Label</th><th>Weight (optional)</th><th>Find by name</th><th></th></tr></thead>
+      <thead><tr><th>Class</th><th>Scheme code</th><th>Label</th><th>Weight (optional)</th><th>Effective %</th><th>Find by name</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
     <button type="button" class="btn-add" data-add="picks">+ Add pick</button>
@@ -37,7 +37,7 @@
 
   <section class="card">
     <h2>2. Target allocation <span id="active-plan-label2" class="plan-badge"></span></h2>
-    <p class="hint">Weight per class. Must sum to ~100% across the classes used in your picks.</p>
+    <p class="hint">Weight per class. Must sum to 100% across the classes used in your picks.</p>
     <table id="target-table" class="editable">
       <thead><tr><th>Class</th><th>Target weight %</th></tr></thead>
       <tbody></tbody>
