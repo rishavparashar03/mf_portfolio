@@ -9,12 +9,17 @@
       name: "Plan 1",
       picks: D.picks.map(p => ({ ...p })),
       target: { ...D.target },
+      investment: 100000,
     }],
     activePlanId: 1,
   };
 
   function activePlan() {
     return state.plans.find(p => p.id === state.activePlanId) || state.plans[0];
+  }
+
+  function fmtRupee(v) {
+    return "₹" + Math.round(v).toLocaleString("en-IN");
   }
 
   const benchesBody = document.querySelector("#benches-table tbody");
@@ -79,6 +84,7 @@
       name: `Plan ${state.plans.length + 1}`,
       picks: src.picks.map(p => ({ ...p })),
       target: { ...src.target },
+      investment: src.investment,
     };
     state.plans.push(plan);
     selectPlan(plan.id);
@@ -129,7 +135,9 @@
 
   function renderPicks() {
     picksBody.innerHTML = "";
+    const plan = activePlan();
     activePlan().picks.forEach((row, idx) => picksBody.appendChild(rowTemplatePick(row, idx)));
+    document.getElementById("plan-investment").value = plan.investment ?? 100000;
     syncTargetClasses();
     updateEffectivePercents();
   }
@@ -194,6 +202,7 @@
 
   function updateEffectivePercents() {
     const plan = activePlan();
+    const investment = Number(plan.investment) || 0;
     const eff = effectivePercents(plan);
     document.querySelectorAll("#picks-table tbody tr").forEach((tr, idx) => {
       const cell = tr.querySelector("[data-eff]");
@@ -202,15 +211,15 @@
         cell.textContent = "—";
         cell.style.color = "var(--text-dim)";
       } else {
-        cell.textContent = eff[idx].toFixed(1) + "%";
+        cell.textContent = fmtRupee(eff[idx] / 100 * investment);
         cell.style.color = "var(--text)";
       }
     });
-    const total = eff.reduce((a, v) => a + (v || 0), 0);
+    const totalPct = eff.reduce((a, v) => a + (v || 0), 0);
     const el = document.getElementById("picks-total-value");
     if (el) {
-      el.textContent = total.toFixed(1) + "%";
-      el.style.color = Math.abs(total - 100) < 0.05 ? "var(--pos)" : "var(--danger)";
+      el.textContent = fmtRupee(totalPct / 100 * investment);
+      el.style.color = Math.abs(totalPct - 100) < 0.05 ? "var(--pos)" : "var(--danger)";
     }
   }
 
@@ -234,6 +243,10 @@
     if (e.target.dataset.cls !== undefined) {
       activePlan().target[e.target.dataset.cls] = Number(e.target.value || 0) / 100;
       updateTargetTotal();
+      updateEffectivePercents();
+    }
+    if (e.target.id === "plan-investment") {
+      activePlan().investment = Number(e.target.value || 0);
       updateEffectivePercents();
     }
   });
@@ -598,10 +611,6 @@
     sel.innerHTML = state.plans.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
     const stillExists = state.plans.some(p => String(p.id) === prev);
     sel.value = stillExists ? prev : String(state.activePlanId);
-  }
-
-  function fmtRupee(v) {
-    return "₹" + Math.round(v).toLocaleString("en-IN");
   }
 
   function mergeSipSeries(items) {
