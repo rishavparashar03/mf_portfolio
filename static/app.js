@@ -146,6 +146,10 @@
   function renderTarget() {
     const plan = activePlan();
     targetBody.innerHTML = "";
+    const totalRow = document.createElement("tr");
+    totalRow.className = "total-row";
+    totalRow.innerHTML = `<td><strong>Total</strong></td><td id="target-total-value"></td>`;
+    targetBody.appendChild(totalRow);
     Object.keys(plan.target).forEach(cls => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
@@ -154,11 +158,10 @@
       targetBody.appendChild(tr);
     });
     if (Object.keys(plan.target).length === 0) {
-      targetBody.innerHTML = `<tr><td colspan="2" style="color:var(--text-dim)">Add a pick with a class to define targets.</td></tr>`;
+      const empty = document.createElement("tr");
+      empty.innerHTML = `<td colspan="2" style="color:var(--text-dim)">Add a pick with a class to define targets.</td>`;
+      targetBody.appendChild(empty);
     }
-    const totalRow = document.createElement("tr");
-    totalRow.innerHTML = `<td><strong>Total</strong></td><td id="target-total-value"></td>`;
-    targetBody.appendChild(totalRow);
     updateTargetTotal();
   }
 
@@ -203,6 +206,12 @@
         cell.style.color = "var(--text)";
       }
     });
+    const total = eff.reduce((a, v) => a + (v || 0), 0);
+    const el = document.getElementById("picks-total-value");
+    if (el) {
+      el.textContent = total.toFixed(1) + "%";
+      el.style.color = Math.abs(total - 100) < 0.05 ? "var(--pos)" : "var(--danger)";
+    }
   }
 
   function listFor(tableId) {
@@ -250,6 +259,8 @@
       const view = e.target.dataset.view;
       document.getElementById("view-builder").classList.toggle("hidden", view !== "builder");
       document.getElementById("view-compare").classList.toggle("hidden", view !== "compare");
+      document.getElementById("view-sip").classList.toggle("hidden", view !== "sip");
+      if (view === "sip") refreshSipPlanSelect();
     }
   });
 
@@ -461,7 +472,7 @@
     charts.length = 0;
   }
 
-  function renderLineChart(container, title, tbl) {
+  function renderLineChart(container, title, tbl, chartsArray = charts, yFormatter = null) {
     const wrap = document.createElement("div");
     wrap.className = "chart-wrap";
     const canvas = document.createElement("canvas");
@@ -480,14 +491,18 @@
       data: { labels: tbl.index, datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { title: { display: true, text: title, color: "#e7ebf5" }, legend: { labels: { color: "#e7ebf5" } } },
+        plugins: {
+          title: { display: true, text: title, color: "#e7ebf5" },
+          legend: { labels: { color: "#e7ebf5" } },
+          tooltip: yFormatter ? { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${yFormatter(ctx.parsed.y)}` } } : {},
+        },
         scales: {
           x: { ticks: { color: "#9aa6c4" }, grid: { color: "#2a3550" } },
-          y: { ticks: { color: "#9aa6c4" }, grid: { color: "#2a3550" } },
+          y: { ticks: { color: "#9aa6c4", callback: yFormatter ? (v) => yFormatter(v) : undefined }, grid: { color: "#2a3550" } },
         },
       },
     });
-    charts.push(chart);
+    chartsArray.push(chart);
   }
 
   function mergeColumn(results, blockTitle, planColumn, benchCols) {
@@ -569,6 +584,144 @@
   }
 
   document.getElementById("compare-btn").addEventListener("click", runCompare);
+
+  // ---------------- SIP simulator ----------------
+  const sipCharts = [];
+  function destroySipCharts() {
+    sipCharts.forEach(c => c.destroy());
+    sipCharts.length = 0;
+  }
+
+  function refreshSipPlanSelect() {
+    const sel = document.getElementById("sip-plan-select");
+    const prev = sel.value;
+    sel.innerHTML = state.plans.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
+    const stillExists = state.plans.some(p => String(p.id) === prev);
+    sel.value = stillExists ? prev : String(state.activePlanId);
+  }
+
+  function fmtRupee(v) {
+    return "₹" + Math.round(v).toLocaleString("en-IN");
+  }
+
+  function mergeSipSeries(items) {
+    // items: [{name, series: {dates, values}}]
+    const dateSet = new Set();
+    const maps = items.map(it => {
+      const m = new Map();
+      it.series.dates.forEach((d, i) => { m.set(d, it.series.values[i]); dateSet.add(d); });
+      return m;
+    });
+    const index = [...dateSet].sort();
+    const columns = items.map(it => it.name);
+    const data = index.map(date => maps.map(m => (m.has(date) ? m.get(date) : null)));
+    return { index, columns, data };
+  }
+
+  function renderSipSummary(container, items) {
+    const rows = items.map(it => {
+      const gain = it.current_value - it.invested;
+      const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
+      const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+      return `<tr>
+        <td>${it.name}</td>
+        <td>${fmtRupee(it.invested)}</td>
+        <td>${fmtRupee(it.current_value)}</td>
+        <td class="${cls}">${fmtRupee(gain)}</td>
+        <td class="${cls}">${gainPct.toFixed(1)}%</td>
+      </tr>`;
+    }).join("");
+    const wrap = document.createElement("div");
+    wrap.className = "block";
+    wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
+      <div class="table-wrap"><table class="matrix">
+        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+    container.appendChild(wrap);
+  }
+
+  async function runSip() {
+    const status = document.getElementById("sip-status");
+    const errorBox = document.getElementById("sip-error");
+    const headline = document.getElementById("sip-headline");
+    const results = document.getElementById("sip-results");
+    errorBox.classList.add("hidden");
+    headline.classList.add("hidden");
+    results.innerHTML = "";
+    destroySipCharts();
+
+    const monthlySip = Number(document.getElementById("sip-amount").value || 0);
+    const stepupPct = Number(document.getElementById("sip-stepup").value || 0);
+    const startDate = document.getElementById("sip-start").value;
+    const chosenPlanId = Number(document.getElementById("sip-plan-select").value);
+
+    if (!startDate) { errorBox.textContent = "Pick a start date."; errorBox.classList.remove("hidden"); return; }
+
+    const payload = {
+      benches: state.benches.filter(b => b.code && b.label),
+      plans: state.plans.map(p => ({
+        name: p.name,
+        picks: p.picks.filter(pk => pk.code && pk.label && pk.cls),
+        target: p.target,
+      })),
+      monthly_sip: monthlySip,
+      stepup_pct: stepupPct,
+      start_date: startDate,
+    };
+
+    status.textContent = "Simulating…";
+    document.getElementById("sip-btn").disabled = true;
+    try {
+      const r = await fetch("/api/sip", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Request failed");
+
+      const chosenPlan = state.plans.find(p => p.id === chosenPlanId);
+      const chosenResult = data.plans.find(p => p.name === (chosenPlan?.name));
+      if (chosenResult) {
+        const gain = chosenResult.current_value - chosenResult.invested;
+        const gainPct = chosenResult.invested > 0 ? (gain / chosenResult.invested) * 100 : 0;
+        const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+        headline.classList.remove("hidden");
+        headline.innerHTML = `
+          <div class="card sip-headline-card">
+            <h2>${chosenResult.name} — as of ${data.asof}</h2>
+            <div class="sip-headline-grid">
+              <div><span class="sip-stat-label">Invested</span><span class="sip-stat-value">${fmtRupee(chosenResult.invested)}</span></div>
+              <div><span class="sip-stat-label">Current value</span><span class="sip-stat-value">${fmtRupee(chosenResult.current_value)}</span></div>
+              <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
+              <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
+            </div>
+          </div>`;
+      }
+
+      const allItems = [...data.plans, ...data.benches.map(b => ({ ...b, name: b.label }))];
+      renderSipSummary(results, allItems);
+      const merged = mergeSipSeries(allItems);
+      const chartBlock = document.createElement("div");
+      chartBlock.className = "block";
+      results.appendChild(chartBlock);
+      renderLineChart(chartBlock, "Portfolio value over time — all plans vs benchmarks", merged, sipCharts, fmtRupee);
+
+      status.textContent = "Done.";
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.classList.remove("hidden");
+      status.textContent = "";
+    } finally {
+      document.getElementById("sip-btn").disabled = false;
+    }
+  }
+
+  document.getElementById("sip-btn").addEventListener("click", runSip);
+  (function defaultSipStart() {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 3);
+    document.getElementById("sip-start").value = d.toISOString().slice(0, 10);
+  })();
 
   renderBenches();
   renderPlansStrip();

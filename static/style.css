@@ -69,6 +69,11 @@ header .sub { margin: 0 0 1rem; color: var(--text-dim); font-size: .9rem; }
 }
 .plan-badge.shared { color: var(--text-dim); background: var(--panel-2); }
 
+.total-line { font-size: .82rem; color: var(--text-dim); margin: -.25rem 0 .6rem; }
+.total-line span { font-weight: 700; }
+tr.total-row td { border-bottom: 1px solid var(--accent) !important; }
+tr.total-row td:first-child { font-weight: 700; }
+
 main {
   max-width: 1100px;
   margin: 0 auto;
@@ -196,6 +201,15 @@ table.editable input[type=text], table.editable input[type=number] {
 .block h3 { font-size: .95rem; margin: 0 0 .6rem; color: var(--text); }
 .chart-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: .75rem; height: 320px; }
 .compare-block { margin-bottom: 2.25rem; }
+
+.sip-headline-card { border-color: var(--accent); }
+.sip-headline-card h2 { font-size: 1.1rem; margin: 0 0 1rem; }
+.sip-headline-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
+.sip-headline-grid > div { display: flex; flex-direction: column; gap: .3rem; }
+.sip-stat-label { font-size: .78rem; color: var(--text-dim); }
+.sip-stat-value { font-size: 1.4rem; font-weight: 700; color: var(--text); }
+.sip-stat-value.pos { color: var(--pos); }
+.sip-stat-value.neg { color: var(--neg); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 table.matrix { border-collapse: collapse; width: 100%; font-size: .82rem; white-space: nowrap; }
 table.matrix th, table.matrix td { padding: .45rem .65rem; text-align: right; border-bottom: 1px solid var(--border); }

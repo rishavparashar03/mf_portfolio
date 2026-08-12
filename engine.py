@@ -129,6 +129,45 @@ def fetch_nav(code):
     return s.copy(), meta
 
 
+def _class_weighting(picks, target):
+    """
+    Shared by compute() and compute_sip(): builds CLS (label -> class),
+    WEIGHT (label -> optional relative weight within its class, default 1.0),
+    and a row_weights(avail) closure that, given a boolean Series of which
+    picks are currently available, returns each available pick's share of
+    the *whole* portfolio -- its class's target weight, split among that
+    class's currently-available picks in proportion to WEIGHT.
+    """
+    CLS = {p["label"]: p["cls"] for p in picks}
+    WEIGHT = {}
+    for p in picks:
+        try:
+            w = float(p.get("weight")) if p.get("weight") not in (None, "") else 1.0
+        except (TypeError, ValueError):
+            w = 1.0
+        WEIGHT[p["label"]] = w if w > 0 else 1.0
+    missing = sorted(set(CLS.values()) - set(target.keys()))
+    if missing:
+        raise EngineError(f"No target weight given for class(es): {', '.join(missing)}")
+
+    def row_weights(avail):
+        live = [k for k in avail.index if avail[k]]
+        if not live:
+            return pd.Series(0.0, index=avail.index)
+        present = {CLS[k] for k in live}
+        tot = sum(target[c] for c in present)
+        w = {}
+        for c in present:
+            mem = [k for k in live if CLS[k] == c]
+            mem_w = {k: WEIGHT.get(k, 1.0) for k in mem}
+            mem_tot = sum(mem_w.values()) or 1.0
+            for k in mem:
+                w[k] = target[c] / tot * (mem_w[k] / mem_tot)
+        return pd.Series(w).reindex(avail.index).fillna(0.0)
+
+    return CLS, WEIGHT, row_weights
+
+
 def compute(benches, target, picks, wins, years_back):
     """
     benches: [{code, label}]
@@ -153,20 +192,7 @@ def compute(benches, target, picks, wins, years_back):
             "start": str(s.index[0].date()), "end": str(s.index[-1].date()),
         })
 
-    CLS = {p["label"]: p["cls"] for p in picks}
-    # optional per-pick weight (relative share *within* its class). Default 1.0 for
-    # everyone -> equal split, same as before. Set a custom number on one/more picks
-    # (in the Picks table) to tilt the split within that class; unedited picks stay equal.
-    WEIGHT = {}
-    for p in picks:
-        try:
-            w = float(p.get("weight")) if p.get("weight") not in (None, "") else 1.0
-        except (TypeError, ValueError):
-            w = 1.0
-        WEIGHT[p["label"]] = w if w > 0 else 1.0
-    missing = sorted(set(CLS.values()) - set(target.keys()))
-    if missing:
-        raise EngineError(f"No target weight given for class(es): {', '.join(missing)}")
+    CLS, WEIGHT, row_weights = _class_weighting(picks, target)
 
     LAST = max(s.index[-1] for s in navs.values())
     ASOF = [min(pd.Timestamp(y, 12, 31), LAST)
@@ -184,21 +210,6 @@ def compute(benches, target, picks, wins, years_back):
             "scheme_name": meta.get("scheme_name", s.name),
             "start": str(s.index[0].date()), "end": str(s.index[-1].date()),
         })
-
-    def row_weights(avail):
-        live = [k for k in avail.index if avail[k]]
-        if not live:
-            return pd.Series(0.0, index=avail.index)
-        present = {CLS[k] for k in live}
-        tot = sum(target[c] for c in present)
-        w = {}
-        for c in present:
-            mem = [k for k in live if CLS[k] == c]
-            mem_w = {k: WEIGHT.get(k, 1.0) for k in mem}
-            mem_tot = sum(mem_w.values()) or 1.0
-            for k in mem:
-                w[k] = target[c] / tot * (mem_w[k] / mem_tot)
-        return pd.Series(w).reindex(avail.index).fillna(0.0)
 
     def growth(k, d0, d1):
         c = DAILY[k]
@@ -307,6 +318,156 @@ def compute_compare(benches, plans, wins, years_back):
     cagr = {y: merge_block(f"{y} YR CAGR %", "PORT_BH") for y in wins}
     vol = merge_block("CALENDAR-YEAR VOLATILITY %", "PORTFOLIO")
     return {"cagr": cagr, "vol": vol}
+
+
+def _sip_dates(start, end):
+    dates, i = [], 0
+    while True:
+        d = start + pd.DateOffset(months=i)
+        if d > end:
+            break
+        dates.append(d)
+        i += 1
+    return dates
+
+
+def _years_elapsed(d, start):
+    """Whole years completed since `start`, as of date `d` -- used to apply the
+    yearly step-up on each SIP anniversary rather than every calendar year."""
+    years = d.year - start.year
+    if (d.month, d.day) < (start.month, start.day):
+        years -= 1
+    return max(years, 0)
+
+
+def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
+    daily = nav_series.resample("D").last().ffill()
+    if start < daily.index[0]:
+        raise EngineError(
+            f"Start date {start.date()} is before this fund's data begins ({daily.index[0].date()})."
+        )
+    dates = _sip_dates(start, min(asof, daily.index[-1]))
+    units = 0.0
+    invested = 0.0
+    series_dates, series_values = [], []
+    for d in dates:
+        nav = daily.asof(d)
+        if not (nav == nav) or nav <= 0:
+            continue
+        contribution = monthly_sip * ((1 + stepup) ** _years_elapsed(d, start))
+        units += contribution / nav
+        invested += contribution
+        series_dates.append(str(d.date()))
+        series_values.append(round(units * nav, 2))
+    current_nav = daily.asof(asof)
+    current_value = round(units * current_nav, 2) if current_nav == current_nav else 0.0
+    return {
+        "invested": round(invested, 2),
+        "current_value": current_value,
+        "series": {"dates": series_dates, "values": series_values},
+    }
+
+
+def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof):
+    if not picks:
+        raise EngineError("A plan needs at least one pick.")
+    navs = {}
+    for p in picks:
+        s, _ = fetch_nav(p["code"])
+        navs[p["label"]] = s
+    DAILY = {k: s.resample("D").last().ffill() for k, s in navs.items()}
+    _, _, row_weights = _class_weighting(picks, target)
+
+    earliest = min(s.index[0] for s in navs.values())
+    if start < earliest:
+        raise EngineError(
+            f"Start date {start.date()} is before any of this plan's picks existed "
+            f"(earliest: {earliest.date()})."
+        )
+
+    dates = _sip_dates(start, asof)
+    units = {k: 0.0 for k in navs}
+    invested = 0.0
+    series_dates, series_values = [], []
+    for d in dates:
+        avail = pd.Series({k: (d >= DAILY[k].index[0]) for k in navs})
+        wv = row_weights(avail)
+        if wv.sum() <= 0:
+            continue  # none of this plan's picks exist yet at this date -- skip the contribution
+        contribution = monthly_sip * ((1 + stepup) ** _years_elapsed(d, start))
+        invested += contribution
+        value = 0.0
+        for k in navs:
+            nav = DAILY[k].asof(d)
+            w = wv.get(k, 0.0)
+            if w > 0 and nav == nav and nav > 0:
+                units[k] += (contribution * w) / nav
+            if nav == nav:
+                value += units[k] * nav
+        series_dates.append(str(d.date()))
+        series_values.append(round(value, 2))
+
+    current_value = 0.0
+    for k in navs:
+        nav = DAILY[k].asof(asof)
+        if nav == nav:
+            current_value += units[k] * nav
+    return {
+        "invested": round(invested, 2),
+        "current_value": round(current_value, 2),
+        "series": {"dates": series_dates, "values": series_values},
+    }
+
+
+def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date):
+    """
+    Simulates a monthly SIP (with an optional yearly step-up) starting on
+    `start_date`, for every plan (blended by its own target/weights, with
+    unavailable-yet picks skipped and the rest re-weighted -- same logic as
+    row_weights elsewhere) and every benchmark (100% into that one fund).
+
+    plans: [{"name": str, "picks": [...], "target": {...}}, ...]
+    benches: [{"code", "label"}]
+    returns {"asof": "YYYY-MM-DD", "plans": [...], "benches": [...]}
+    """
+    if monthly_sip is None or monthly_sip <= 0:
+        raise EngineError("Monthly SIP amount must be a positive number.")
+    if not plans:
+        raise EngineError("Add at least one plan.")
+    try:
+        start = pd.Timestamp(start_date)
+    except Exception:
+        raise EngineError(f"Invalid start date: {start_date!r}")
+
+    stepup = (stepup_pct or 0) / 100.0
+
+    codes = {int(pk["code"]) for p in plans for pk in p.get("picks", [])}
+    codes |= {int(b["code"]) for b in benches}
+    if not codes:
+        raise EngineError("No funds to simulate.")
+    last_dates = []
+    for code in codes:
+        s, _ = fetch_nav(code)
+        last_dates.append(s.index[-1])
+    asof = min(last_dates)
+    if start > asof:
+        raise EngineError(f"Start date {start.date()} is after the latest available NAV date ({asof.date()}).")
+
+    plan_results = []
+    for i, p in enumerate(plans):
+        name = p.get("name") or f"Plan {i + 1}"
+        r = _simulate_portfolio(p.get("picks", []), p.get("target", {}), monthly_sip, stepup, start, asof)
+        r["name"] = name
+        plan_results.append(r)
+
+    bench_results = []
+    for b in benches:
+        s, _ = fetch_nav(b["code"])
+        r = _simulate_single_fund(s, monthly_sip, stepup, start, asof)
+        r["label"] = b["label"]
+        bench_results.append(r)
+
+    return {"asof": str(asof.date()), "plans": plan_results, "benches": bench_results}
 
 
 def df_to_json(df):

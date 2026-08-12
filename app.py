@@ -4,7 +4,10 @@ import traceback
 from flask import Flask, request, jsonify, send_file, render_template
 import pandas as pd
 
-from engine import compute, compute_compare, result_to_json, search_scheme_fast, prime_scheme_cache_async, EngineError
+from engine import (
+    compute, compute_compare, compute_sip, result_to_json,
+    search_scheme_fast, prime_scheme_cache_async, EngineError,
+)
 
 app = Flask(__name__)
 prime_scheme_cache_async()  # warm the full-scheme-list cache in the background so search is fast from the first real query
@@ -121,6 +124,28 @@ def api_compare_export():
     buf = _blocks_to_xlsx(blocks, sheet_name="compare")
     return send_file(buf, as_attachment=True, download_name="mf_plans_compare.xlsx",
                       mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/api/sip", methods=["POST"])
+def api_sip():
+    payload = request.get_json(force=True) or {}
+    benches = payload.get("benches", [])
+    plans = payload.get("plans", [])
+    monthly_sip = payload.get("monthly_sip")
+    stepup_pct = payload.get("stepup_pct") or 0
+    start_date = payload.get("start_date")
+    try:
+        monthly_sip = float(monthly_sip)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Monthly SIP amount must be a number."}), 400
+    try:
+        result = compute_sip(benches, plans, monthly_sip, float(stepup_pct), start_date)
+        return jsonify(result)
+    except EngineError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
 
 
 if __name__ == "__main__":

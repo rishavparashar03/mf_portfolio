@@ -13,6 +13,7 @@
   <nav class="top-tabs">
     <button type="button" class="top-tab active" data-view="builder">Builder</button>
     <button type="button" class="top-tab" data-view="compare">Compare plans</button>
+    <button type="button" class="top-tab" data-view="sip">SIP</button>
   </nav>
 </header>
 
@@ -28,6 +29,7 @@
   <section class="card">
     <h2>1. Picks <span id="active-plan-label" class="plan-badge"></span></h2>
     <p class="hint">Your funds. Give each a class (e.g. gold, equity, debt) — classes must match the target allocation below. "Weight" is optional: leave it blank/1 to split each class equally across its picks; raise or lower it on a pick to tilt the split within that class.</p>
+    <div class="total-line">Total across all picks: <span id="picks-total-value"></span></div>
     <table id="picks-table" class="editable">
       <thead><tr><th>Class</th><th>Scheme code</th><th>Label</th><th>Weight (optional)</th><th>Effective %</th><th>Find by name</th><th></th></tr></thead>
       <tbody></tbody>
@@ -89,6 +91,26 @@
   </section>
   <section id="compare-error" class="error hidden"></section>
   <section id="compare-results"></section>
+</div>
+
+<div id="view-sip" class="view hidden">
+  <section class="card">
+    <h2>SIP simulator</h2>
+    <p class="hint">Simulates a monthly SIP into a plan (blended by its picks/target, same as elsewhere — a pick not yet launched at a given month is skipped and its share redistributed) from a chosen start date to today, and the same SIP into each benchmark for comparison.</p>
+    <div class="options-row">
+      <label>Monthly SIP (₹) <input type="number" id="sip-amount" min="1" value="10000"></label>
+      <label>Yearly step-up % (optional) <input type="number" id="sip-stepup" min="0" step="0.5" placeholder="0"></label>
+      <label>Start date <input type="date" id="sip-start"></label>
+      <label>Plan to highlight <select id="sip-plan-select"></select></label>
+    </div>
+    <div class="actions">
+      <button type="button" id="sip-btn" class="btn-primary">Run SIP</button>
+      <span id="sip-status"></span>
+    </div>
+  </section>
+  <section id="sip-error" class="error hidden"></section>
+  <section id="sip-headline" class="hidden"></section>
+  <section id="sip-results"></section>
 </div>
 
 </main>
