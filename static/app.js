@@ -306,8 +306,6 @@
       document.getElementById("view-compare").classList.toggle("hidden", view !== "compare");
       document.getElementById("view-sip").classList.toggle("hidden", view !== "sip");
       document.getElementById("view-sip-rebal").classList.toggle("hidden", view !== "sip-rebal");
-      if (view === "sip") refreshPlanSelect("sip-plan-select");
-      if (view === "sip-rebal") refreshPlanSelect("sipr-plan-select");
     }
   });
 
@@ -639,14 +637,6 @@
     sipChartsByPrefix[prefix] = [];
   }
 
-  function refreshPlanSelect(selectId) {
-    const sel = document.getElementById(selectId);
-    const prev = sel.value;
-    sel.innerHTML = state.plans.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
-    const stillExists = state.plans.some(p => String(p.id) === prev);
-    sel.value = stillExists ? prev : String(state.activePlanId);
-  }
-
   function mergeSipSeries(items) {
     // items: [{name, series: {dates, values}}]
     const dateSet = new Set();
@@ -699,11 +689,9 @@
   async function runSipFlow(prefix, includeRebalance) {
     const status = document.getElementById(`${prefix}-status`);
     const errorBox = document.getElementById(`${prefix}-error`);
-    const headline = document.getElementById(`${prefix}-headline`);
     const results = document.getElementById(`${prefix}-results`);
     const btn = document.getElementById(`${prefix}-btn`);
     errorBox.classList.add("hidden");
-    headline.classList.add("hidden");
     results.innerHTML = "";
     destroySipCharts(prefix);
 
@@ -711,7 +699,6 @@
     const stepupPct = Number(document.getElementById(`${prefix}-stepup`).value || 0);
     const startDate = document.getElementById(`${prefix}-start`).value;
     const endDate = document.getElementById(`${prefix}-end`).value;
-    const chosenPlanId = Number(document.getElementById(`${prefix}-plan-select`).value);
     const rebalanceYears = includeRebalance ? Number(document.getElementById(`${prefix}-years`).value || 0) : 0;
     const harvestEl = document.getElementById(`${prefix}-harvest`);
     const harvestLtcg = harvestEl ? harvestEl.checked : false;
@@ -741,36 +728,6 @@
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Request failed");
-
-      const chosenPlan = state.plans.find(p => p.id === chosenPlanId);
-      const chosenResult = data.plans.find(p => p.name === (chosenPlan?.name));
-      if (chosenResult) {
-        const gain = chosenResult.current_value - chosenResult.invested;
-        const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
-        const xirrCls = chosenResult.xirr > 0 ? "pos" : (chosenResult.xirr < 0 ? "neg" : "");
-        const afterTaxGain = chosenResult.current_value_after_tax - chosenResult.invested;
-        const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
-        const rebalStat = includeRebalance
-          ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${chosenResult.rebalances}</span></div>
-             <div><span class="sip-stat-label">Tax paid so far (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>` : "";
-        const harvestStat = harvestLtcg
-          ? `<div><span class="sip-stat-label">Gains harvested tax-free</span><span class="sip-stat-value">${fmtRupee(chosenResult.harvested_gain)}</span></div>` : "";
-        headline.classList.remove("hidden");
-        headline.innerHTML = `
-          <div class="card sip-headline-card">
-            <h2>${chosenResult.name} — as of ${data.asof}</h2>
-            <div class="sip-headline-grid">
-              <div><span class="sip-stat-label">Invested</span><span class="sip-stat-value">${fmtRupee(chosenResult.invested)}</span></div>
-              <div><span class="sip-stat-label">Current value</span><span class="sip-stat-value">${fmtRupee(chosenResult.current_value)}</span></div>
-              <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
-              <div><span class="sip-stat-label">XIRR</span><span class="sip-stat-value ${xirrCls}">${chosenResult.xirr != null ? chosenResult.xirr.toFixed(1) + "%" : "—"}</span></div>
-              ${rebalStat}
-              ${harvestStat}
-              <div><span class="sip-stat-label">Exit tax (if sold on ${data.asof})</span><span class="sip-stat-value">${fmtRupee(chosenResult.liquidation_tax)}</span></div>
-              <div><span class="sip-stat-label">Value after exit tax</span><span class="sip-stat-value ${afterTaxCls}">${fmtRupee(chosenResult.current_value_after_tax)}</span></div>
-            </div>
-          </div>`;
-      }
 
       const allItems = [...data.plans, ...data.benches.map(b => ({ ...b, name: b.label }))];
       renderSipSummary(results, allItems, includeRebalance, harvestLtcg, data.asof);
