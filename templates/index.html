@@ -120,7 +120,7 @@
 <div id="view-sip-rebal" class="view hidden">
   <section class="card">
     <h2>SIP + periodic rebalancing</h2>
-    <p class="hint">Same monthly SIP simulation, but every N years the plan's holdings are sold and rebought in the current target proportions instead of just left to drift. Benchmarks are a single fund each, so rebalancing doesn't apply to them — they're shown as plain buy-and-hold for comparison.</p>
+    <p class="hint">Same monthly SIP simulation, but every N years the plan's holdings are sold and rebought in the current target proportions instead of just left to drift. Each rebalance sale is taxed on its gain (FIFO lot by lot): 12.5% long-term / 20% short-term, with "long-term" meaning held over 12 months for equity classes or over 24 months for everything else — the tax leaves the portfolio, same as a real sale would. Unrealized (never-sold) gains aren't taxed. Benchmarks are a single fund each, so rebalancing/tax doesn't apply to them — they're shown as plain buy-and-hold for comparison.</p>
     <div class="options-row">
       <label>Monthly SIP (₹) <input type="number" id="sipr-amount" min="1" value="10000"></label>
       <label>Yearly step-up % (optional) <input type="number" id="sipr-stepup" min="0" step="0.5" placeholder="0"></label>

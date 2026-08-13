@@ -666,17 +666,18 @@
       const gain = it.current_value - it.invested;
       const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
       const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
-      const rebalCell = showRebalances ? `<td>${it.rebalances ?? "—"}</td>` : "";
+      const rebalCells = showRebalances
+        ? `<td>${it.rebalances ?? "—"}</td><td>${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</td>` : "";
       return `<tr>
         <td>${it.name}</td>
         <td>${fmtRupee(it.invested)}</td>
         <td>${fmtRupee(it.current_value)}</td>
         <td class="${cls}">${fmtRupee(gain)}</td>
         <td class="${cls}">${gainPct.toFixed(1)}%</td>
-        ${rebalCell}
+        ${rebalCells}
       </tr>`;
     }).join("");
-    const rebalHeader = showRebalances ? "<th>Rebalances</th>" : "";
+    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid</th>" : "";
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
@@ -740,7 +741,8 @@
         const gainPct = chosenResult.invested > 0 ? (gain / chosenResult.invested) * 100 : 0;
         const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
         const rebalStat = includeRebalance
-          ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${chosenResult.rebalances}</span></div>` : "";
+          ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${chosenResult.rebalances}</span></div>
+             <div><span class="sip-stat-label">Tax paid (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>` : "";
         headline.classList.remove("hidden");
         headline.innerHTML = `
           <div class="card sip-headline-card">

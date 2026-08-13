@@ -368,6 +368,22 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
     }
 
 
+# Capital-gains assumptions applied when a rebalance sells existing units
+# (unrealized/mark-to-market value is never taxed -- only an actual rebalance
+# sale triggers this). Simplified per the user's own stated assumptions:
+# same LTCG/STCG rates for every asset class, but a longer long-term holding
+# threshold for anything that isn't equity (matching gold/debt/etc.).
+LTCG_RATE = 0.125
+STCG_RATE = 0.20
+EQUITY_LT_MONTHS = 12
+OTHER_LT_MONTHS = 24
+_TOL = 0.01  # rupees; avoids churning on floating-point noise
+
+
+def _lt_months_for_class(cls):
+    return EQUITY_LT_MONTHS if (cls or "").strip().lower() == "equity" else OTHER_LT_MONTHS
+
+
 def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalance_years=None):
     if not picks:
         raise EngineError("A plan needs at least one pick.")
@@ -376,7 +392,7 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
         s, _ = fetch_nav(p["code"])
         navs[p["label"]] = s
     DAILY = {k: s.resample("D").last().ffill() for k, s in navs.items()}
-    _, _, row_weights = _class_weighting(picks, target)
+    CLS, _, row_weights = _class_weighting(picks, target)
 
     earliest = min(s.index[0] for s in navs.values())
     if start < earliest:
@@ -387,10 +403,35 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
 
     dates = _sip_dates(start, asof)
     units = {k: 0.0 for k in navs}
+    lots = {k: [] for k in navs}  # FIFO tax lots: [{"date", "units", "cost"}]
     invested = 0.0
     rebalances = 0
+    tax_paid = 0.0
     next_rebal = start + pd.DateOffset(years=rebalance_years) if rebalance_years else None
     series_dates, series_values = [], []
+
+    def sell_fifo(k, d, sell_units, nav):
+        """Consume `sell_units` from k's oldest lots first; returns (lt_gain, st_gain)."""
+        remaining = sell_units
+        lt_gain = st_gain = 0.0
+        kept = []
+        threshold_months = _lt_months_for_class(CLS.get(k))
+        for lot in lots[k]:
+            if remaining <= 1e-9:
+                kept.append(lot)
+                continue
+            take = min(lot["units"], remaining)
+            gain = take * (nav - lot["cost"])
+            if d > lot["date"] + pd.DateOffset(months=threshold_months):
+                lt_gain += gain
+            else:
+                st_gain += gain
+            remaining -= take
+            if take < lot["units"] - 1e-9:
+                kept.append({"date": lot["date"], "units": lot["units"] - take, "cost": lot["cost"]})
+        lots[k] = kept
+        return lt_gain, st_gain
+
     for d in dates:
         avail = pd.Series({k: (d >= DAILY[k].index[0]) for k in navs})
         wv = row_weights(avail)
@@ -403,18 +444,38 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
             nav = DAILY[k].asof(d)
             w = wv.get(k, 0.0)
             if w > 0 and nav == nav and nav > 0:
-                units[k] += (contribution * w) / nav
+                bought = (contribution * w) / nav
+                units[k] += bought
+                lots[k].append({"date": d, "units": bought, "cost": nav})
             if nav == nav:
                 value += units[k] * nav
 
-        # periodic rebalance: sell everything (conceptually) and rebuy in the
-        # current target proportions, using this month's contribution as the
-        # trigger point so it lines up with a monthly valuation we already have.
         if next_rebal is not None and d >= next_rebal:
+            navs_today = {k: DAILY[k].asof(d) for k in navs}
+            target_val = {k: value * wv.get(k, 0.0) for k in navs}
+            sell_amt, event_tax = {}, 0.0
             for k in navs:
-                nav = DAILY[k].asof(d)
-                w = wv.get(k, 0.0)
-                units[k] = (value * w) / nav if (w > 0 and nav == nav and nav > 0) else 0.0
+                nav = navs_today[k]
+                cur_val = units[k] * nav if nav == nav else 0.0
+                over = cur_val - target_val[k]
+                if over > _TOL and nav == nav and nav > 0:
+                    sell_units = over / nav
+                    lt_gain, st_gain = sell_fifo(k, d, sell_units, nav)
+                    units[k] -= sell_units
+                    event_tax += max(lt_gain, 0.0) * LTCG_RATE + max(st_gain, 0.0) * STCG_RATE
+                    sell_amt[k] = over
+            total_sell = sum(sell_amt.values())
+            factor = (total_sell - event_tax) / total_sell if total_sell > 0 else 1.0
+            for k in navs:
+                nav = navs_today[k]
+                cur_val = units[k] * nav if nav == nav else 0.0
+                under = target_val[k] - cur_val
+                if under > _TOL and nav == nav and nav > 0:
+                    buy_units = (under * factor) / nav
+                    units[k] += buy_units
+                    lots[k].append({"date": d, "units": buy_units, "cost": nav})
+            tax_paid += event_tax
+            value -= event_tax  # tax leaves the portfolio
             rebalances += 1
             while next_rebal <= d:
                 next_rebal += pd.DateOffset(years=rebalance_years)
@@ -431,6 +492,7 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
         "invested": round(invested, 2),
         "current_value": round(current_value, 2),
         "rebalances": rebalances,
+        "tax_paid": round(tax_paid, 2),
         "series": {"dates": series_dates, "values": series_values},
     }
 
@@ -443,11 +505,18 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
     row_weights elsewhere) and every benchmark (100% into that one fund).
 
     rebalance_years: if set, each plan's portfolio is rebalanced back to its
-    target weights every N years from `start_date` (sells everything at that
-    month's contribution point and rebuys in target proportion). None/0
-    means no rebalancing -- pure buy-and-hold that lets weights drift, same
-    as before this option existed. Benchmarks are single-fund, so this is a
-    no-op for them.
+    target weights every N years from `start_date` (sells only the overweight
+    positions' excess at that month's contribution point, FIFO tax-lot by
+    tax-lot, and rebuys the underweight ones with what's left after tax).
+    None/0 means no rebalancing -- pure buy-and-hold that lets weights drift,
+    same as before this option existed. Benchmarks are single-fund, so this
+    is a no-op for them.
+
+    Rebalance sales are taxed (12.5% long-term / 20% short-term on the GAIN
+    portion only, per lot) using a long-term threshold of 12 months for an
+    "equity" class and 24 months for everything else -- the tax leaves the
+    portfolio and reduces what's reinvested, same as a real sale would.
+    Unrealized (never-sold) gains are not taxed anywhere in this simulation.
 
     plans: [{"name": str, "picks": [...], "target": {...}}, ...]
     benches: [{"code", "label"}]
