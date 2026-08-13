@@ -305,7 +305,9 @@
       document.getElementById("view-builder").classList.toggle("hidden", view !== "builder");
       document.getElementById("view-compare").classList.toggle("hidden", view !== "compare");
       document.getElementById("view-sip").classList.toggle("hidden", view !== "sip");
-      if (view === "sip") refreshSipPlanSelect();
+      document.getElementById("view-sip-rebal").classList.toggle("hidden", view !== "sip-rebal");
+      if (view === "sip") refreshPlanSelect("sip-plan-select");
+      if (view === "sip-rebal") refreshPlanSelect("sipr-plan-select");
     }
   });
 
@@ -630,15 +632,15 @@
 
   document.getElementById("compare-btn").addEventListener("click", runCompare);
 
-  // ---------------- SIP simulator ----------------
-  const sipCharts = [];
-  function destroySipCharts() {
-    sipCharts.forEach(c => c.destroy());
-    sipCharts.length = 0;
+  // ---------------- SIP simulator (shared by the SIP and SIP + Rebalance tabs) ----------------
+  const sipChartsByPrefix = {};
+  function destroySipCharts(prefix) {
+    (sipChartsByPrefix[prefix] || []).forEach(c => c.destroy());
+    sipChartsByPrefix[prefix] = [];
   }
 
-  function refreshSipPlanSelect() {
-    const sel = document.getElementById("sip-plan-select");
+  function refreshPlanSelect(selectId) {
+    const sel = document.getElementById(selectId);
     const prev = sel.value;
     sel.innerHTML = state.plans.map(p => `<option value="${p.id}">${p.name}</option>`).join("");
     const stillExists = state.plans.some(p => String(p.id) === prev);
@@ -659,45 +661,55 @@
     return { index, columns, data };
   }
 
-  function renderSipSummary(container, items) {
+  function renderSipSummary(container, items, showRebalances) {
     const rows = items.map(it => {
       const gain = it.current_value - it.invested;
       const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
       const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+      const rebalCell = showRebalances ? `<td>${it.rebalances ?? "—"}</td>` : "";
       return `<tr>
         <td>${it.name}</td>
         <td>${fmtRupee(it.invested)}</td>
         <td>${fmtRupee(it.current_value)}</td>
         <td class="${cls}">${fmtRupee(gain)}</td>
         <td class="${cls}">${gainPct.toFixed(1)}%</td>
+        ${rebalCell}
       </tr>`;
     }).join("");
+    const rebalHeader = showRebalances ? "<th>Rebalances</th>" : "";
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
       <div class="table-wrap"><table class="matrix">
-        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th></tr></thead>
+        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th>${rebalHeader}</tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
     container.appendChild(wrap);
   }
 
-  async function runSip() {
-    const status = document.getElementById("sip-status");
-    const errorBox = document.getElementById("sip-error");
-    const headline = document.getElementById("sip-headline");
-    const results = document.getElementById("sip-results");
+  async function runSipFlow(prefix, includeRebalance) {
+    const status = document.getElementById(`${prefix}-status`);
+    const errorBox = document.getElementById(`${prefix}-error`);
+    const headline = document.getElementById(`${prefix}-headline`);
+    const results = document.getElementById(`${prefix}-results`);
+    const btn = document.getElementById(`${prefix}-btn`);
     errorBox.classList.add("hidden");
     headline.classList.add("hidden");
     results.innerHTML = "";
-    destroySipCharts();
+    destroySipCharts(prefix);
 
-    const monthlySip = Number(document.getElementById("sip-amount").value || 0);
-    const stepupPct = Number(document.getElementById("sip-stepup").value || 0);
-    const startDate = document.getElementById("sip-start").value;
-    const chosenPlanId = Number(document.getElementById("sip-plan-select").value);
+    const monthlySip = Number(document.getElementById(`${prefix}-amount`).value || 0);
+    const stepupPct = Number(document.getElementById(`${prefix}-stepup`).value || 0);
+    const startDate = document.getElementById(`${prefix}-start`).value;
+    const chosenPlanId = Number(document.getElementById(`${prefix}-plan-select`).value);
+    const rebalanceYears = includeRebalance ? Number(document.getElementById(`${prefix}-years`).value || 0) : 0;
 
     if (!startDate) { errorBox.textContent = "Pick a start date."; errorBox.classList.remove("hidden"); return; }
+    if (includeRebalance && rebalanceYears <= 0) {
+      errorBox.textContent = "Rebalance interval must be at least 1 year.";
+      errorBox.classList.remove("hidden");
+      return;
+    }
 
     const payload = {
       benches: state.benches.filter(b => b.code && b.label),
@@ -710,9 +722,10 @@
       stepup_pct: stepupPct,
       start_date: startDate,
     };
+    if (includeRebalance) payload.rebalance_years = rebalanceYears;
 
     status.textContent = "Simulating…";
-    document.getElementById("sip-btn").disabled = true;
+    btn.disabled = true;
     try {
       const r = await fetch("/api/sip", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -726,6 +739,8 @@
         const gain = chosenResult.current_value - chosenResult.invested;
         const gainPct = chosenResult.invested > 0 ? (gain / chosenResult.invested) * 100 : 0;
         const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+        const rebalStat = includeRebalance
+          ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${chosenResult.rebalances}</span></div>` : "";
         headline.classList.remove("hidden");
         headline.innerHTML = `
           <div class="card sip-headline-card">
@@ -735,17 +750,19 @@
               <div><span class="sip-stat-label">Current value</span><span class="sip-stat-value">${fmtRupee(chosenResult.current_value)}</span></div>
               <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
               <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
+              ${rebalStat}
             </div>
           </div>`;
       }
 
       const allItems = [...data.plans, ...data.benches.map(b => ({ ...b, name: b.label }))];
-      renderSipSummary(results, allItems);
+      renderSipSummary(results, allItems, includeRebalance);
       const merged = mergeSipSeries(allItems);
       const chartBlock = document.createElement("div");
       chartBlock.className = "block";
       results.appendChild(chartBlock);
-      renderLineChart(chartBlock, "Portfolio value over time — all plans vs benchmarks", merged, sipCharts, fmtRupee);
+      sipChartsByPrefix[prefix] = sipChartsByPrefix[prefix] || [];
+      renderLineChart(chartBlock, "Portfolio value over time — all plans vs benchmarks", merged, sipChartsByPrefix[prefix], fmtRupee);
 
       status.textContent = "Done.";
     } catch (err) {
@@ -753,15 +770,18 @@
       errorBox.classList.remove("hidden");
       status.textContent = "";
     } finally {
-      document.getElementById("sip-btn").disabled = false;
+      btn.disabled = false;
     }
   }
 
-  document.getElementById("sip-btn").addEventListener("click", runSip);
+  document.getElementById("sip-btn").addEventListener("click", () => runSipFlow("sip", false));
+  document.getElementById("sipr-btn").addEventListener("click", () => runSipFlow("sipr", true));
   (function defaultSipStart() {
     const d = new Date();
     d.setFullYear(d.getFullYear() - 3);
-    document.getElementById("sip-start").value = d.toISOString().slice(0, 10);
+    const iso = d.toISOString().slice(0, 10);
+    document.getElementById("sip-start").value = iso;
+    document.getElementById("sipr-start").value = iso;
   })();
 
   renderBenches();

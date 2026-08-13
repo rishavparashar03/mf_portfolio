@@ -368,7 +368,7 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
     }
 
 
-def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof):
+def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalance_years=None):
     if not picks:
         raise EngineError("A plan needs at least one pick.")
     navs = {}
@@ -388,6 +388,8 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof):
     dates = _sip_dates(start, asof)
     units = {k: 0.0 for k in navs}
     invested = 0.0
+    rebalances = 0
+    next_rebal = start + pd.DateOffset(years=rebalance_years) if rebalance_years else None
     series_dates, series_values = [], []
     for d in dates:
         avail = pd.Series({k: (d >= DAILY[k].index[0]) for k in navs})
@@ -404,6 +406,19 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof):
                 units[k] += (contribution * w) / nav
             if nav == nav:
                 value += units[k] * nav
+
+        # periodic rebalance: sell everything (conceptually) and rebuy in the
+        # current target proportions, using this month's contribution as the
+        # trigger point so it lines up with a monthly valuation we already have.
+        if next_rebal is not None and d >= next_rebal:
+            for k in navs:
+                nav = DAILY[k].asof(d)
+                w = wv.get(k, 0.0)
+                units[k] = (value * w) / nav if (w > 0 and nav == nav and nav > 0) else 0.0
+            rebalances += 1
+            while next_rebal <= d:
+                next_rebal += pd.DateOffset(years=rebalance_years)
+
         series_dates.append(str(d.date()))
         series_values.append(round(value, 2))
 
@@ -415,16 +430,24 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof):
     return {
         "invested": round(invested, 2),
         "current_value": round(current_value, 2),
+        "rebalances": rebalances,
         "series": {"dates": series_dates, "values": series_values},
     }
 
 
-def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date):
+def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_years=None):
     """
     Simulates a monthly SIP (with an optional yearly step-up) starting on
     `start_date`, for every plan (blended by its own target/weights, with
     unavailable-yet picks skipped and the rest re-weighted -- same logic as
     row_weights elsewhere) and every benchmark (100% into that one fund).
+
+    rebalance_years: if set, each plan's portfolio is rebalanced back to its
+    target weights every N years from `start_date` (sells everything at that
+    month's contribution point and rebuys in target proportion). None/0
+    means no rebalancing -- pure buy-and-hold that lets weights drift, same
+    as before this option existed. Benchmarks are single-fund, so this is a
+    no-op for them.
 
     plans: [{"name": str, "picks": [...], "target": {...}}, ...]
     benches: [{"code", "label"}]
@@ -438,6 +461,8 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date):
         start = pd.Timestamp(start_date)
     except Exception:
         raise EngineError(f"Invalid start date: {start_date!r}")
+    if rebalance_years is not None and rebalance_years <= 0:
+        rebalance_years = None
 
     stepup = (stepup_pct or 0) / 100.0
 
@@ -456,7 +481,7 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date):
     plan_results = []
     for i, p in enumerate(plans):
         name = p.get("name") or f"Plan {i + 1}"
-        r = _simulate_portfolio(p.get("picks", []), p.get("target", {}), monthly_sip, stepup, start, asof)
+        r = _simulate_portfolio(p.get("picks", []), p.get("target", {}), monthly_sip, stepup, start, asof, rebalance_years)
         r["name"] = name
         plan_results.append(r)
 

@@ -130,12 +130,18 @@ def api_sip():
     monthly_sip = payload.get("monthly_sip")
     stepup_pct = payload.get("stepup_pct") or 0
     start_date = payload.get("start_date")
+    rebalance_years = payload.get("rebalance_years") or None
     try:
         monthly_sip = float(monthly_sip)
     except (TypeError, ValueError):
         return jsonify({"error": "Monthly SIP amount must be a number."}), 400
+    if rebalance_years is not None:
+        try:
+            rebalance_years = float(rebalance_years)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Rebalance interval must be a number."}), 400
     try:
-        result = compute_sip(benches, plans, monthly_sip, float(stepup_pct), start_date)
+        result = compute_sip(benches, plans, monthly_sip, float(stepup_pct), start_date, rebalance_years)
         return jsonify(result)
     except EngineError as e:
         return jsonify({"error": str(e)}), 400

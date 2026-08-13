@@ -14,6 +14,7 @@
     <button type="button" class="top-tab active" data-view="builder">Builder</button>
     <button type="button" class="top-tab" data-view="compare">Compare plans</button>
     <button type="button" class="top-tab" data-view="sip">SIP</button>
+    <button type="button" class="top-tab" data-view="sip-rebal">SIP + Rebalance</button>
   </nav>
 </header>
 
@@ -114,6 +115,27 @@
   <section id="sip-error" class="error hidden"></section>
   <section id="sip-headline" class="hidden"></section>
   <section id="sip-results"></section>
+</div>
+
+<div id="view-sip-rebal" class="view hidden">
+  <section class="card">
+    <h2>SIP + periodic rebalancing</h2>
+    <p class="hint">Same monthly SIP simulation, but every N years the plan's holdings are sold and rebought in the current target proportions instead of just left to drift. Benchmarks are a single fund each, so rebalancing doesn't apply to them — they're shown as plain buy-and-hold for comparison.</p>
+    <div class="options-row">
+      <label>Monthly SIP (₹) <input type="number" id="sipr-amount" min="1" value="10000"></label>
+      <label>Yearly step-up % (optional) <input type="number" id="sipr-stepup" min="0" step="0.5" placeholder="0"></label>
+      <label>Rebalance every (years) <input type="number" id="sipr-years" min="1" step="1" value="1"></label>
+      <label>Start date <input type="date" id="sipr-start"></label>
+      <label>Plan to highlight <select id="sipr-plan-select"></select></label>
+    </div>
+    <div class="actions">
+      <button type="button" id="sipr-btn" class="btn-primary">Run SIP</button>
+      <span id="sipr-status"></span>
+    </div>
+  </section>
+  <section id="sipr-error" class="error hidden"></section>
+  <section id="sipr-headline" class="hidden"></section>
+  <section id="sipr-results"></section>
 </div>
 
 </main>
