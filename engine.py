@@ -436,7 +436,7 @@ def _apply_carryforward(pool, gain, current_fy):
     return gain
 
 
-def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalance_years=None):
+def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalance_years=None, harvest_ltcg=False):
     if not picks:
         raise EngineError("A plan needs at least one pick.")
     navs = {}
@@ -459,9 +459,11 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
     invested = 0.0
     rebalances = 0
     tax_paid = 0.0
+    harvested_gain_total = 0.0
     fy_equity_ltcg_used = {}  # FY key -> equity LTCG already counted against the Rs 1.25L exemption
     st_loss_cf, lt_loss_cf = [], []  # loss carryforward pools: [{"fy": origin, "amount": rupees}]
     next_rebal = start + pd.DateOffset(years=rebalance_years) if rebalance_years else None
+    next_harvest = start + pd.DateOffset(years=1) if harvest_ltcg else None  # harvesting is always yearly
     series_dates, series_values = [], []
 
     def sell_fifo(k, d, sell_units, nav):
@@ -600,6 +602,49 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
             while next_rebal <= d:
                 next_rebal += pd.DateOffset(years=rebalance_years)
 
+        # ---- LTCG harvesting: sell (and immediately rebuy) just enough of
+        # the equity long-term lots to use up whatever's left of THIS FY's
+        # Rs 1.25L exemption -- zero tax, but it resets those units' cost
+        # basis (and holding-period clock) to today. Doesn't touch units
+        # held, doesn't touch weights, only equity is eligible (matches
+        # Sec 112A), and it shares the same exemption bucket a real
+        # rebalance sale would draw from.
+        if next_harvest is not None and d >= next_harvest:
+            fy = _financial_year(d)
+            used = fy_equity_ltcg_used.get(fy, 0.0)
+            room = max(EQUITY_LTCG_EXEMPTION - used, 0.0)
+            harvested_this_event = 0.0
+            if room > _TOL:
+                for k in navs:
+                    if not _is_equity_class(CLS.get(k)) or room - harvested_this_event <= _TOL:
+                        continue
+                    nav = DAILY[k].asof(d)
+                    if not (nav == nav) or nav <= 0:
+                        continue
+                    new_lots = []
+                    for lot in lots[k]:
+                        remaining_room = room - harvested_this_event
+                        is_lt = d > lot["date"] + pd.DateOffset(months=EQUITY_LT_MONTHS)
+                        per_unit_gain = nav - lot["cost"]
+                        if remaining_room <= _TOL or not is_lt or per_unit_gain <= 0:
+                            new_lots.append(lot)
+                            continue
+                        lot_gain = lot["units"] * per_unit_gain
+                        if lot_gain <= remaining_room + _TOL:
+                            harvested_this_event += lot_gain
+                            new_lots.append({"date": d, "units": lot["units"], "cost": nav})  # sold + rebought today
+                        else:
+                            harvest_units = remaining_room / per_unit_gain
+                            harvested_this_event += harvest_units * per_unit_gain
+                            new_lots.append({"date": d, "units": harvest_units, "cost": nav})
+                            new_lots.append({"date": lot["date"], "units": lot["units"] - harvest_units, "cost": lot["cost"]})
+                    lots[k] = new_lots
+            if harvested_this_event > _TOL:
+                fy_equity_ltcg_used[fy] = used + harvested_this_event
+                harvested_gain_total += harvested_this_event
+            while next_harvest <= d:
+                next_harvest += pd.DateOffset(years=1)
+
         series_dates.append(str(d.date()))
         series_values.append(round(value, 2))
 
@@ -671,11 +716,12 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
         "current_value_after_tax": round(current_value - liquidation_tax, 2),
         "rebalances": rebalances,
         "tax_paid": round(tax_paid, 2),
+        "harvested_gain": round(harvested_gain_total, 2),
         "series": {"dates": series_dates, "values": series_values},
     }
 
 
-def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_years=None):
+def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_years=None, harvest_ltcg=False):
     """
     Simulates a monthly SIP (with an optional yearly step-up) starting on
     `start_date`, for every plan (blended by its own target/weights, with
@@ -717,6 +763,17 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
       independent Rs 1.25L/FY exemption), but never "tax_paid"/"rebalances"
       since nothing is ever sold along the way for a single-fund benchmark.
 
+    harvest_ltcg: if True, once a year (always yearly, independent of
+    rebalance_years) each plan sells and immediately rebuys just enough of
+    its equity long-term lots to use up whatever's left of that FY's
+    Rs 1.25L exemption -- zero tax due (it's exactly inside the exemption),
+    but it resets those units' cost basis AND holding-period clock to that
+    date. Units held and weights are unchanged; this only matters for the
+    later "sold everything" tax math. Shares the same per-FY exemption
+    bucket a real rebalance sale draws from. Reported as "harvested_gain"
+    (cumulative, tax-free) on each plan result; benchmarks and non-equity
+    classes are untouched by this (no such exemption exists for them).
+
     plans: [{"name": str, "picks": [...], "target": {...}}, ...]
     benches: [{"code", "label"}]
     returns {"asof": "YYYY-MM-DD", "plans": [...], "benches": [...]}
@@ -749,7 +806,7 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
     plan_results = []
     for i, p in enumerate(plans):
         name = p.get("name") or f"Plan {i + 1}"
-        r = _simulate_portfolio(p.get("picks", []), p.get("target", {}), monthly_sip, stepup, start, asof, rebalance_years)
+        r = _simulate_portfolio(p.get("picks", []), p.get("target", {}), monthly_sip, stepup, start, asof, rebalance_years, harvest_ltcg)
         r["name"] = name
         plan_results.append(r)
 

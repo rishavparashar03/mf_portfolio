@@ -669,7 +669,7 @@
       const afterTaxGain = it.current_value_after_tax != null ? it.current_value_after_tax - it.invested : null;
       const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
       const rebalCells = showRebalances
-        ? `<td>${it.rebalances ?? "—"}</td><td>${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</td>` : "";
+        ? `<td>${it.rebalances ?? "—"}</td><td>${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</td><td>${it.harvested_gain != null ? fmtRupee(it.harvested_gain) : "—"}</td>` : "";
       return `<tr>
         <td>${it.name}</td>
         <td>${fmtRupee(it.invested)}</td>
@@ -681,7 +681,7 @@
         ${rebalCells}
       </tr>`;
     }).join("");
-    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid so far</th>" : "";
+    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid so far</th><th>Harvested (tax-free)</th>" : "";
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
@@ -709,13 +709,10 @@
     const startDate = document.getElementById(`${prefix}-start`).value;
     const chosenPlanId = Number(document.getElementById(`${prefix}-plan-select`).value);
     const rebalanceYears = includeRebalance ? Number(document.getElementById(`${prefix}-years`).value || 0) : 0;
+    const harvestEl = includeRebalance ? document.getElementById(`${prefix}-harvest`) : null;
+    const harvestLtcg = harvestEl ? harvestEl.checked : false;
 
     if (!startDate) { errorBox.textContent = "Pick a start date."; errorBox.classList.remove("hidden"); return; }
-    if (includeRebalance && rebalanceYears <= 0) {
-      errorBox.textContent = "Rebalance interval must be at least 1 year.";
-      errorBox.classList.remove("hidden");
-      return;
-    }
 
     const payload = {
       benches: state.benches.filter(b => b.code && b.label),
@@ -728,7 +725,8 @@
       stepup_pct: stepupPct,
       start_date: startDate,
     };
-    if (includeRebalance) payload.rebalance_years = rebalanceYears;
+    if (includeRebalance && rebalanceYears > 0) payload.rebalance_years = rebalanceYears;
+    if (harvestLtcg) payload.harvest_ltcg = true;
 
     status.textContent = "Simulating…";
     btn.disabled = true;
@@ -749,7 +747,8 @@
         const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
         const rebalStat = includeRebalance
           ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${chosenResult.rebalances}</span></div>
-             <div><span class="sip-stat-label">Tax paid so far (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>` : "";
+             <div><span class="sip-stat-label">Tax paid so far (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>
+             <div><span class="sip-stat-label">Gains harvested tax-free</span><span class="sip-stat-value">${fmtRupee(chosenResult.harvested_gain)}</span></div>` : "";
         headline.classList.remove("hidden");
         headline.innerHTML = `
           <div class="card sip-headline-card">

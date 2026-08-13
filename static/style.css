@@ -159,6 +159,13 @@ table.editable input[type=text], table.editable input[type=number], table.editab
   font-size: .85rem;
   min-width: 160px;
 }
+.options-row label.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: .5rem;
+  justify-content: flex-start;
+}
+.options-row label.checkbox-label input { min-width: 0; width: auto; }
 
 .actions { display: flex; align-items: center; gap: .75rem; }
 .btn-primary, .btn-secondary {
