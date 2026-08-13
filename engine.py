@@ -31,6 +31,7 @@ _cache_lock = threading.Lock()
 _SCHEMES_TTL = 24 * 60 * 60
 _schemes_cache = {"data": None, "ts": 0, "loading": False}
 _schemes_lock = threading.Lock()
+_schemes_ready = threading.Event()  # set once _schemes_cache["data"] is populated
 
 
 class EngineError(Exception):
@@ -47,11 +48,15 @@ def search_scheme(q, n=15):
 
 
 def _load_all_schemes():
-    data = requests.get(ALL_SCHEMES, timeout=60).json()
-    with _schemes_lock:
-        _schemes_cache["data"] = data
-        _schemes_cache["ts"] = time.time()
-        _schemes_cache["loading"] = False
+    try:
+        data = requests.get(ALL_SCHEMES, timeout=60).json()
+        with _schemes_lock:
+            _schemes_cache["data"] = data
+            _schemes_cache["ts"] = time.time()
+    finally:
+        with _schemes_lock:
+            _schemes_cache["loading"] = False
+        _schemes_ready.set()  # wake up anyone waiting, even if the fetch failed
 
 
 def prime_scheme_cache_async():
@@ -60,6 +65,7 @@ def prime_scheme_cache_async():
         if _schemes_cache["loading"] or _schemes_cache["data"] is not None:
             return
         _schemes_cache["loading"] = True
+        _schemes_ready.clear()
     threading.Thread(target=_load_all_schemes, daemon=True).start()
 
 
@@ -71,8 +77,16 @@ def search_scheme_fast(q, n=15):
     if stale and not loading:
         prime_scheme_cache_async()
     if data is None:
-        # cache not warm yet (e.g. right after startup) -- fall back once so
-        # the user still gets results, cache will be instant next time.
+        # Cache not warm yet -- this only happens right after a cold start
+        # (e.g. Render's free tier waking from its idle spin-down). Wait for
+        # the in-flight load instead of falling back to the ~10x-slower
+        # per-keystroke proxy, which previously kept happening on EVERY
+        # search typed during that window, not just the first one.
+        _schemes_ready.wait(timeout=20)
+        with _schemes_lock:
+            data = _schemes_cache["data"]
+    if data is None:
+        # the fetch itself failed/timed out -- last-resort fallback
         return search_scheme(q, n)
 
     tokens = [t for t in q.lower().split() if t]
