@@ -377,11 +377,23 @@ LTCG_RATE = 0.125
 STCG_RATE = 0.20
 EQUITY_LT_MONTHS = 12
 OTHER_LT_MONTHS = 24
+# Sec 112A: the first Rs 1.25L of equity LTCG in a financial year is exempt.
+# Only equity LTCG gets this -- not equity STCG, not any non-equity gain.
+EQUITY_LTCG_EXEMPTION = 125000.0
 _TOL = 0.01  # rupees; avoids churning on floating-point noise
 
 
+def _is_equity_class(cls):
+    return (cls or "").strip().lower() == "equity"
+
+
 def _lt_months_for_class(cls):
-    return EQUITY_LT_MONTHS if (cls or "").strip().lower() == "equity" else OTHER_LT_MONTHS
+    return EQUITY_LT_MONTHS if _is_equity_class(cls) else OTHER_LT_MONTHS
+
+
+def _financial_year(d):
+    """Indian FY: Apr 1 -> Mar 31, keyed by the year it starts in."""
+    return d.year if d.month >= 4 else d.year - 1
 
 
 def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalance_years=None):
@@ -407,6 +419,7 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
     invested = 0.0
     rebalances = 0
     tax_paid = 0.0
+    fy_equity_ltcg_used = {}  # FY key -> equity LTCG already counted against the Rs 1.25L exemption
     next_rebal = start + pd.DateOffset(years=rebalance_years) if rebalance_years else None
     series_dates, series_values = [], []
 
@@ -453,7 +466,8 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
         if next_rebal is not None and d >= next_rebal:
             navs_today = {k: DAILY[k].asof(d) for k in navs}
             target_val = {k: value * wv.get(k, 0.0) for k in navs}
-            sell_amt, event_tax = {}, 0.0
+            sell_amt = {}
+            equity_lt_gain = other_lt_gain = equity_st_gain = other_st_gain = 0.0
             for k in navs:
                 nav = navs_today[k]
                 cur_val = units[k] * nav if nav == nav else 0.0
@@ -462,8 +476,49 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
                     sell_units = over / nav
                     lt_gain, st_gain = sell_fifo(k, d, sell_units, nav)
                     units[k] -= sell_units
-                    event_tax += max(lt_gain, 0.0) * LTCG_RATE + max(st_gain, 0.0) * STCG_RATE
+                    if _is_equity_class(CLS.get(k)):
+                        equity_lt_gain += lt_gain
+                        equity_st_gain += st_gain
+                    else:
+                        other_lt_gain += lt_gain
+                        other_st_gain += st_gain
                     sell_amt[k] = over
+
+            # ---- intra-event loss offsetting (real ITR rules: a short-term
+            # loss can offset short-term OR long-term gains of any asset
+            # class; a long-term loss can only offset long-term gains, but
+            # still of any class). Losses left unabsorbed after this aren't
+            # carried forward to later rebalances/years.
+            if equity_lt_gain < 0 and other_lt_gain > 0:
+                offset = min(-equity_lt_gain, other_lt_gain)
+                other_lt_gain -= offset
+                equity_lt_gain += offset
+            elif other_lt_gain < 0 and equity_lt_gain > 0:
+                offset = min(-other_lt_gain, equity_lt_gain)
+                equity_lt_gain -= offset
+                other_lt_gain += offset
+            equity_lt_gain = max(equity_lt_gain, 0.0)
+            other_lt_gain = max(other_lt_gain, 0.0)
+
+            net_st_gain = equity_st_gain + other_st_gain
+            if net_st_gain < 0:
+                st_loss = -net_st_gain
+                net_st_gain = 0.0
+                reduce = min(st_loss, other_lt_gain)  # use up the non-exempt LT gain first
+                other_lt_gain -= reduce
+                st_loss -= reduce
+                if st_loss > 0:
+                    reduce2 = min(st_loss, equity_lt_gain)
+                    equity_lt_gain -= reduce2
+                    st_loss -= reduce2
+                    # any st_loss still left is unabsorbed this event
+
+            fy = _financial_year(d)
+            used = fy_equity_ltcg_used.get(fy, 0.0)
+            remaining_exemption = max(EQUITY_LTCG_EXEMPTION - used, 0.0)
+            taxable_equity_lt = max(equity_lt_gain - remaining_exemption, 0.0)
+            fy_equity_ltcg_used[fy] = used + equity_lt_gain
+            event_tax = taxable_equity_lt * LTCG_RATE + other_lt_gain * LTCG_RATE + net_st_gain * STCG_RATE
             total_sell = sum(sell_amt.values())
             factor = (total_sell - event_tax) / total_sell if total_sell > 0 else 1.0
             for k in navs:
@@ -517,6 +572,16 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
     "equity" class and 24 months for everything else -- the tax leaves the
     portfolio and reduces what's reinvested, same as a real sale would.
     Unrealized (never-sold) gains are not taxed anywhere in this simulation.
+
+    Two more real-rule refinements, applied per rebalance event:
+    - The first Rs 1.25L of equity LTCG in a financial year (Apr-Mar) is
+      exempt (Sec 112A) -- tracked per plan, across all its rebalances in
+      that FY, and only against equity-class LTCG (not equity STCG, not any
+      non-equity gain, which are taxed from the first rupee).
+    - A loss realized on one fund in the same event offsets a gain on
+      another: short-term losses offset short-term OR long-term gains of
+      any class; long-term losses offset long-term gains of any class only.
+      Unabsorbed losses are NOT carried forward to a later rebalance/year.
 
     plans: [{"name": str, "picks": [...], "target": {...}}, ...]
     benches: [{"code", "label"}]
