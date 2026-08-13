@@ -661,7 +661,7 @@
     return { index, columns, data };
   }
 
-  function renderSipSummary(container, items, showRebalances) {
+  function renderSipSummary(container, items, showRebalances, asof) {
     const rows = items.map(it => {
       const gain = it.current_value - it.invested;
       const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
@@ -685,7 +685,7 @@
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
-      <p class="hint" style="margin-bottom:.5rem">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold today (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>
+      <p class="hint" style="margin-bottom:.5rem">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold on ${asof} (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>
       <div class="table-wrap"><table class="matrix">
         <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th><th>Exit tax</th><th>Value after exit tax</th>${rebalHeader}</tr></thead>
         <tbody>${rows}</tbody>
@@ -707,6 +707,7 @@
     const monthlySip = Number(document.getElementById(`${prefix}-amount`).value || 0);
     const stepupPct = Number(document.getElementById(`${prefix}-stepup`).value || 0);
     const startDate = document.getElementById(`${prefix}-start`).value;
+    const endDate = document.getElementById(`${prefix}-end`).value;
     const chosenPlanId = Number(document.getElementById(`${prefix}-plan-select`).value);
     const rebalanceYears = includeRebalance ? Number(document.getElementById(`${prefix}-years`).value || 0) : 0;
     const harvestEl = includeRebalance ? document.getElementById(`${prefix}-harvest`) : null;
@@ -725,6 +726,7 @@
       stepup_pct: stepupPct,
       start_date: startDate,
     };
+    if (endDate) payload.end_date = endDate;
     if (includeRebalance && rebalanceYears > 0) payload.rebalance_years = rebalanceYears;
     if (harvestLtcg) payload.harvest_ltcg = true;
 
@@ -759,14 +761,14 @@
               <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
               <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
               ${rebalStat}
-              <div><span class="sip-stat-label">Exit tax (if sold today)</span><span class="sip-stat-value">${fmtRupee(chosenResult.liquidation_tax)}</span></div>
+              <div><span class="sip-stat-label">Exit tax (if sold on ${data.asof})</span><span class="sip-stat-value">${fmtRupee(chosenResult.liquidation_tax)}</span></div>
               <div><span class="sip-stat-label">Value after exit tax</span><span class="sip-stat-value ${afterTaxCls}">${fmtRupee(chosenResult.current_value_after_tax)}</span></div>
             </div>
           </div>`;
       }
 
       const allItems = [...data.plans, ...data.benches.map(b => ({ ...b, name: b.label }))];
-      renderSipSummary(results, allItems, includeRebalance);
+      renderSipSummary(results, allItems, includeRebalance, data.asof);
       const merged = mergeSipSeries(allItems);
       const chartBlock = document.createElement("div");
       chartBlock.className = "block";

@@ -130,6 +130,7 @@ def api_sip():
     monthly_sip = payload.get("monthly_sip")
     stepup_pct = payload.get("stepup_pct") or 0
     start_date = payload.get("start_date")
+    end_date = payload.get("end_date") or None
     rebalance_years = payload.get("rebalance_years") or None
     harvest_ltcg = bool(payload.get("harvest_ltcg"))
     try:
@@ -142,7 +143,7 @@ def api_sip():
         except (TypeError, ValueError):
             return jsonify({"error": "Rebalance interval must be a number."}), 400
     try:
-        result = compute_sip(benches, plans, monthly_sip, float(stepup_pct), start_date, rebalance_years, harvest_ltcg)
+        result = compute_sip(benches, plans, monthly_sip, float(stepup_pct), start_date, rebalance_years, harvest_ltcg, end_date)
         return jsonify(result)
     except EngineError as e:
         return jsonify({"error": str(e)}), 400

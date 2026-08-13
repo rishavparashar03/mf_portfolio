@@ -721,7 +721,7 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
     }
 
 
-def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_years=None, harvest_ltcg=False):
+def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_years=None, harvest_ltcg=False, end_date=None):
     """
     Simulates a monthly SIP (with an optional yearly step-up) starting on
     `start_date`, for every plan (blended by its own target/weights, with
@@ -774,6 +774,11 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
     (cumulative, tax-free) on each plan result; benchmarks and non-equity
     classes are untouched by this (no such exemption exists for them).
 
+    end_date: optional -- if given, the simulation stops there instead of at
+    the latest available NAV date (i.e. "what if I invested from X to Y"
+    instead of "...to today"). Clamped down to whatever data is actually
+    available if it's later than that; must not be before `start_date`.
+
     plans: [{"name": str, "picks": [...], "target": {...}}, ...]
     benches: [{"code", "label"}]
     returns {"asof": "YYYY-MM-DD", "plans": [...], "benches": [...]}
@@ -800,8 +805,14 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
         s, _ = fetch_nav(code)
         last_dates.append(s.index[-1])
     asof = min(last_dates)
+    if end_date:
+        try:
+            end_ts = pd.Timestamp(end_date)
+        except Exception:
+            raise EngineError(f"Invalid end date: {end_date!r}")
+        asof = min(asof, end_ts)
     if start > asof:
-        raise EngineError(f"Start date {start.date()} is after the latest available NAV date ({asof.date()}).")
+        raise EngineError(f"Start date {start.date()} is after the end date / latest available NAV date ({asof.date()}).")
 
     plan_results = []
     for i, p in enumerate(plans):
