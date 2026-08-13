@@ -661,7 +661,7 @@
     return { index, columns, data };
   }
 
-  function renderSipSummary(container, items, showRebalances, asof) {
+  function renderSipSummary(container, items, showRebalances, showHarvest, asof) {
     const rows = items.map(it => {
       const gain = it.current_value - it.invested;
       const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
@@ -669,7 +669,9 @@
       const afterTaxGain = it.current_value_after_tax != null ? it.current_value_after_tax - it.invested : null;
       const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
       const rebalCells = showRebalances
-        ? `<td>${it.rebalances ?? "—"}</td><td>${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</td><td>${it.harvested_gain != null ? fmtRupee(it.harvested_gain) : "—"}</td>` : "";
+        ? `<td>${it.rebalances ?? "—"}</td><td>${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</td>` : "";
+      const harvestCells = showHarvest
+        ? `<td>${it.harvested_gain != null ? fmtRupee(it.harvested_gain) : "—"}</td>` : "";
       return `<tr>
         <td>${it.name}</td>
         <td>${fmtRupee(it.invested)}</td>
@@ -679,15 +681,17 @@
         <td>${it.liquidation_tax != null ? fmtRupee(it.liquidation_tax) : "—"}</td>
         <td class="${afterTaxCls}">${it.current_value_after_tax != null ? fmtRupee(it.current_value_after_tax) : "—"}</td>
         ${rebalCells}
+        ${harvestCells}
       </tr>`;
     }).join("");
-    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid so far</th><th>Harvested (tax-free)</th>" : "";
+    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid so far</th>" : "";
+    const harvestHeader = showHarvest ? "<th>Harvested (tax-free)</th>" : "";
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
       <p class="hint" style="margin-bottom:.5rem">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold on ${asof} (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>
       <div class="table-wrap"><table class="matrix">
-        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th><th>Exit tax</th><th>Value after exit tax</th>${rebalHeader}</tr></thead>
+        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th><th>Exit tax</th><th>Value after exit tax</th>${rebalHeader}${harvestHeader}</tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
     container.appendChild(wrap);
@@ -710,7 +714,7 @@
     const endDate = document.getElementById(`${prefix}-end`).value;
     const chosenPlanId = Number(document.getElementById(`${prefix}-plan-select`).value);
     const rebalanceYears = includeRebalance ? Number(document.getElementById(`${prefix}-years`).value || 0) : 0;
-    const harvestEl = includeRebalance ? document.getElementById(`${prefix}-harvest`) : null;
+    const harvestEl = document.getElementById(`${prefix}-harvest`);
     const harvestLtcg = harvestEl ? harvestEl.checked : false;
 
     if (!startDate) { errorBox.textContent = "Pick a start date."; errorBox.classList.remove("hidden"); return; }
@@ -749,8 +753,9 @@
         const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
         const rebalStat = includeRebalance
           ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${chosenResult.rebalances}</span></div>
-             <div><span class="sip-stat-label">Tax paid so far (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>
-             <div><span class="sip-stat-label">Gains harvested tax-free</span><span class="sip-stat-value">${fmtRupee(chosenResult.harvested_gain)}</span></div>` : "";
+             <div><span class="sip-stat-label">Tax paid so far (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>` : "";
+        const harvestStat = harvestLtcg
+          ? `<div><span class="sip-stat-label">Gains harvested tax-free</span><span class="sip-stat-value">${fmtRupee(chosenResult.harvested_gain)}</span></div>` : "";
         headline.classList.remove("hidden");
         headline.innerHTML = `
           <div class="card sip-headline-card">
@@ -761,6 +766,7 @@
               <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
               <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
               ${rebalStat}
+              ${harvestStat}
               <div><span class="sip-stat-label">Exit tax (if sold on ${data.asof})</span><span class="sip-stat-value">${fmtRupee(chosenResult.liquidation_tax)}</span></div>
               <div><span class="sip-stat-label">Value after exit tax</span><span class="sip-stat-value ${afterTaxCls}">${fmtRupee(chosenResult.current_value_after_tax)}</span></div>
             </div>
@@ -768,7 +774,7 @@
       }
 
       const allItems = [...data.plans, ...data.benches.map(b => ({ ...b, name: b.label }))];
-      renderSipSummary(results, allItems, includeRebalance, data.asof);
+      renderSipSummary(results, allItems, includeRebalance, harvestLtcg, data.asof);
       const merged = mergeSipSeries(allItems);
       const chartBlock = document.createElement("div");
       chartBlock.className = "block";

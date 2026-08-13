@@ -101,12 +101,14 @@
   <section class="card">
     <h2>SIP simulator</h2>
     <p class="hint">Simulates a monthly SIP into a plan (blended by its picks/target, same as elsewhere — a pick not yet launched at a given month is skipped and its share redistributed) from a chosen start date to an end date (leave blank for "to today"), and the same SIP into each benchmark for comparison. Also shows a hypothetical exit tax: what you'd owe (and keep) if everything held were sold at the end date, treating a benchmark as a single equity holding — Sec 112A's ₹1.25L/FY equity LTCG exemption included.</p>
+    <p class="hint"><strong>LTCG harvesting</strong>: once a year, sells and immediately rebuys just enough equity long-term units to use up whatever's left of that year's ₹1.25L exemption — zero tax, but it resets those units' cost basis (and 12-month clock) to today, so less gain is left to tax later. Doesn't touch units held, weights, or non-equity classes.</p>
     <div class="options-row">
       <label>Monthly SIP (₹) <input type="number" id="sip-amount" min="1" value="10000"></label>
       <label>Yearly step-up % (optional) <input type="number" id="sip-stepup" min="0" step="0.5" placeholder="0"></label>
       <label>Start date <input type="date" id="sip-start"></label>
       <label>End date (optional) <input type="date" id="sip-end"></label>
       <label>Plan to highlight <select id="sip-plan-select"></select></label>
+      <label class="checkbox-label"><input type="checkbox" id="sip-harvest"> Also harvest ₹1.25L LTCG yearly</label>
     </div>
     <div class="actions">
       <button type="button" id="sip-btn" class="btn-primary">Run SIP</button>
