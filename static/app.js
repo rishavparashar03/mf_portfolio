@@ -666,6 +666,8 @@
       const gain = it.current_value - it.invested;
       const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
       const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+      const afterTaxGain = it.current_value_after_tax != null ? it.current_value_after_tax - it.invested : null;
+      const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
       const rebalCells = showRebalances
         ? `<td>${it.rebalances ?? "—"}</td><td>${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</td>` : "";
       return `<tr>
@@ -674,15 +676,18 @@
         <td>${fmtRupee(it.current_value)}</td>
         <td class="${cls}">${fmtRupee(gain)}</td>
         <td class="${cls}">${gainPct.toFixed(1)}%</td>
+        <td>${it.liquidation_tax != null ? fmtRupee(it.liquidation_tax) : "—"}</td>
+        <td class="${afterTaxCls}">${it.current_value_after_tax != null ? fmtRupee(it.current_value_after_tax) : "—"}</td>
         ${rebalCells}
       </tr>`;
     }).join("");
-    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid</th>" : "";
+    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid so far</th>" : "";
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
+      <p class="hint" style="margin-bottom:.5rem">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold today (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>
       <div class="table-wrap"><table class="matrix">
-        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th>${rebalHeader}</tr></thead>
+        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th><th>Exit tax</th><th>Value after exit tax</th>${rebalHeader}</tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
     container.appendChild(wrap);
@@ -740,9 +745,11 @@
         const gain = chosenResult.current_value - chosenResult.invested;
         const gainPct = chosenResult.invested > 0 ? (gain / chosenResult.invested) * 100 : 0;
         const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+        const afterTaxGain = chosenResult.current_value_after_tax - chosenResult.invested;
+        const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
         const rebalStat = includeRebalance
           ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${chosenResult.rebalances}</span></div>
-             <div><span class="sip-stat-label">Tax paid (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>` : "";
+             <div><span class="sip-stat-label">Tax paid so far (rebalancing)</span><span class="sip-stat-value">${fmtRupee(chosenResult.tax_paid)}</span></div>` : "";
         headline.classList.remove("hidden");
         headline.innerHTML = `
           <div class="card sip-headline-card">
@@ -753,6 +760,8 @@
               <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
               <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
               ${rebalStat}
+              <div><span class="sip-stat-label">Exit tax (if sold today)</span><span class="sip-stat-value">${fmtRupee(chosenResult.liquidation_tax)}</span></div>
+              <div><span class="sip-stat-label">Value after exit tax</span><span class="sip-stat-value ${afterTaxCls}">${fmtRupee(chosenResult.current_value_after_tax)}</span></div>
             </div>
           </div>`;
       }
