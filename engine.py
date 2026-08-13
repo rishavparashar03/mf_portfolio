@@ -340,7 +340,7 @@ def _years_elapsed(d, start):
     return max(years, 0)
 
 
-def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
+def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof, harvest_ltcg=False):
     daily = nav_series.resample("D").last().ffill()
     if start < daily.index[0]:
         raise EngineError(
@@ -349,7 +349,16 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
     dates = _sip_dates(start, min(asof, daily.index[-1]))
     units = 0.0
     invested = 0.0
-    lots = []  # FIFO tax lots, just for the final "sold everything today" estimate below
+    lots = []  # FIFO tax lots
+    harvested_gain_total = 0.0
+    # A benchmark here is always a single equity index fund, so treat it as
+    # the "equity" class for tax purposes: 12-month LT threshold, and its own
+    # independent Rs 1.25L/FY exemption (it's a separate hypothetical
+    # portfolio from any plan, not sharing exemption room with one) --
+    # unless harvesting is enabled, in which case it uses that same exemption
+    # up as it goes, exactly like a plan would, so the comparison stays fair.
+    fy_equity_ltcg_used = {}
+    next_harvest = start + pd.DateOffset(years=1) if harvest_ltcg else None
     series_dates, series_values = [], []
     for d in dates:
         nav = daily.asof(d)
@@ -360,15 +369,42 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
         units += bought
         lots.append({"date": d, "units": bought, "cost": nav})
         invested += contribution
+
+        if next_harvest is not None and d >= next_harvest:
+            fy = _financial_year(d)
+            used = fy_equity_ltcg_used.get(fy, 0.0)
+            room = max(EQUITY_LTCG_EXEMPTION - used, 0.0)
+            harvested_this_event = 0.0
+            if room > _TOL:
+                new_lots = []
+                for lot in lots:
+                    remaining_room = room - harvested_this_event
+                    is_lt = d > lot["date"] + pd.DateOffset(months=EQUITY_LT_MONTHS)
+                    per_unit_gain = nav - lot["cost"]
+                    if remaining_room <= _TOL or not is_lt or per_unit_gain <= 0:
+                        new_lots.append(lot)
+                        continue
+                    lot_gain = lot["units"] * per_unit_gain
+                    if lot_gain <= remaining_room + _TOL:
+                        harvested_this_event += lot_gain
+                        new_lots.append({"date": d, "units": lot["units"], "cost": nav})
+                    else:
+                        harvest_units = remaining_room / per_unit_gain
+                        harvested_this_event += harvest_units * per_unit_gain
+                        new_lots.append({"date": d, "units": harvest_units, "cost": nav})
+                        new_lots.append({"date": lot["date"], "units": lot["units"] - harvest_units, "cost": lot["cost"]})
+                lots = new_lots
+            if harvested_this_event > _TOL:
+                fy_equity_ltcg_used[fy] = used + harvested_this_event
+                harvested_gain_total += harvested_this_event
+            while next_harvest <= d:
+                next_harvest += pd.DateOffset(years=1)
+
         series_dates.append(str(d.date()))
         series_values.append(round(units * nav, 2))
     current_nav = daily.asof(asof)
     current_value = round(units * current_nav, 2) if current_nav == current_nav else 0.0
 
-    # A benchmark here is always a single equity index fund, so treat it as
-    # the "equity" class for tax purposes: 12-month LT threshold, and its own
-    # independent Rs 1.25L/FY exemption (it's a separate hypothetical
-    # portfolio from any plan, not sharing exemption room with one).
     liquidation_tax = 0.0
     if current_nav == current_nav:
         lt_gain = st_gain = 0.0
@@ -380,7 +416,10 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
                 st_gain += gain
         lt_gain = max(lt_gain, 0.0)
         st_gain = max(st_gain, 0.0)
-        taxable_lt = max(lt_gain - EQUITY_LTCG_EXEMPTION, 0.0)
+        final_fy = _financial_year(asof)
+        used = fy_equity_ltcg_used.get(final_fy, 0.0)
+        remaining_exemption = max(EQUITY_LTCG_EXEMPTION - used, 0.0)
+        taxable_lt = max(lt_gain - remaining_exemption, 0.0)
         liquidation_tax = taxable_lt * LTCG_RATE + st_gain * STCG_RATE
 
     return {
@@ -388,6 +427,7 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof):
         "current_value": current_value,
         "liquidation_tax": round(liquidation_tax, 2),
         "current_value_after_tax": round(current_value - liquidation_tax, 2),
+        "harvested_gain": round(harvested_gain_total, 2),
         "series": {"dates": series_dates, "values": series_values},
     }
 
@@ -761,18 +801,25 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
       everything still held were sold today. Benchmarks get the latter two
       as well (treated as a single equity-class holding with its own,
       independent Rs 1.25L/FY exemption), but never "tax_paid"/"rebalances"
-      since nothing is ever sold along the way for a single-fund benchmark.
+      since nothing is ever sold along the way for a single-fund benchmark
+      UNLESS harvest_ltcg is on (see below), which does apply to them.
 
     harvest_ltcg: if True, once a year (always yearly, independent of
-    rebalance_years) each plan sells and immediately rebuys just enough of
-    its equity long-term lots to use up whatever's left of that FY's
+    rebalance_years) each plan AND each benchmark sells and immediately
+    rebuys just enough of its equity long-term lots (a benchmark here is
+    always treated as equity) to use up whatever's left of that FY's
     Rs 1.25L exemption -- zero tax due (it's exactly inside the exemption),
     but it resets those units' cost basis AND holding-period clock to that
     date. Units held and weights are unchanged; this only matters for the
-    later "sold everything" tax math. Shares the same per-FY exemption
-    bucket a real rebalance sale draws from. Reported as "harvested_gain"
-    (cumulative, tax-free) on each plan result; benchmarks and non-equity
-    classes are untouched by this (no such exemption exists for them).
+    later "sold everything" tax math. A plan's harvest shares the same
+    per-FY exemption bucket a real rebalance sale on it would draw from;
+    each benchmark has its own separate bucket (it's a distinct hypothetical
+    portfolio, not sharing exemption room with a plan or another benchmark)
+    -- this keeps the comparison fair, since a real investor holding just
+    that index fund could harvest it the same way. Reported as
+    "harvested_gain" (cumulative, tax-free) on every plan AND benchmark
+    result. Non-equity classes within a plan are untouched (no such
+    exemption exists for them).
 
     end_date: optional -- if given, the simulation stops there instead of at
     the latest available NAV date (i.e. "what if I invested from X to Y"
@@ -824,7 +871,7 @@ def compute_sip(benches, plans, monthly_sip, stepup_pct, start_date, rebalance_y
     bench_results = []
     for b in benches:
         s, _ = fetch_nav(b["code"])
-        r = _simulate_single_fund(s, monthly_sip, stepup, start, asof)
+        r = _simulate_single_fund(s, monthly_sip, stepup, start, asof, harvest_ltcg)
         r["label"] = b["label"]
         bench_results.append(r)
 
