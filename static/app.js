@@ -689,11 +689,11 @@
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
-      <p class="hint" style="margin-bottom:.5rem">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold on ${asof} (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>
       <div class="table-wrap"><table class="matrix">
         <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th><th>Exit tax</th><th>Value after exit tax</th>${rebalHeader}${harvestHeader}</tr></thead>
         <tbody>${rows}</tbody>
-      </table></div>`;
+      </table></div>
+      <p class="hint" style="margin-top:.5rem;margin-bottom:0">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold on ${asof} (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>`;
     container.appendChild(wrap);
   }
 
