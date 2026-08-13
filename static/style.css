@@ -217,6 +217,9 @@ table.editable input[type=text], table.editable input[type=number], table.editab
 .sip-stat-value { font-size: 1.2rem; font-weight: 700; color: var(--text); }
 .sip-stat-value.pos { color: var(--pos); }
 .sip-stat-value.neg { color: var(--neg); }
+.sip-summary-cards { display: flex; flex-direction: column; gap: 1.25rem; }
+.sip-summary-card { padding: 1.5rem 1.75rem; }
+.sip-summary-card h2 { font-size: 1.05rem; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 table.matrix { border-collapse: collapse; width: 100%; font-size: .82rem; white-space: nowrap; }
 table.matrix th, table.matrix td { padding: .45rem .65rem; text-align: right; border-bottom: 1px solid var(--border); }

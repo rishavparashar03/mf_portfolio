@@ -662,38 +662,37 @@
   }
 
   function renderSipSummary(container, items, showRebalances, showHarvest, asof) {
-    const rows = items.map(it => {
+    const cardsHtml = items.map(it => {
       const gain = it.current_value - it.invested;
       const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
       const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
       const afterTaxGain = it.current_value_after_tax != null ? it.current_value_after_tax - it.invested : null;
       const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
-      const rebalCells = showRebalances
-        ? `<td>${it.rebalances ?? "—"}</td><td>${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</td>` : "";
-      const harvestCells = showHarvest
-        ? `<td>${it.harvested_gain != null ? fmtRupee(it.harvested_gain) : "—"}</td>` : "";
-      return `<tr>
-        <td>${it.name}</td>
-        <td>${fmtRupee(it.invested)}</td>
-        <td>${fmtRupee(it.current_value)}</td>
-        <td class="${cls}">${fmtRupee(gain)}</td>
-        <td class="${cls}">${gainPct.toFixed(1)}%</td>
-        <td>${it.liquidation_tax != null ? fmtRupee(it.liquidation_tax) : "—"}</td>
-        <td class="${afterTaxCls}">${it.current_value_after_tax != null ? fmtRupee(it.current_value_after_tax) : "—"}</td>
-        ${rebalCells}
-        ${harvestCells}
-      </tr>`;
+      const rebalStat = showRebalances
+        ? `<div><span class="sip-stat-label">Rebalances</span><span class="sip-stat-value">${it.rebalances ?? "—"}</span></div>
+           <div><span class="sip-stat-label">Tax paid so far (rebalancing)</span><span class="sip-stat-value">${it.tax_paid != null ? fmtRupee(it.tax_paid) : "—"}</span></div>` : "";
+      const harvestStat = showHarvest
+        ? `<div><span class="sip-stat-label">Gains harvested tax-free</span><span class="sip-stat-value">${it.harvested_gain != null ? fmtRupee(it.harvested_gain) : "—"}</span></div>` : "";
+      return `
+        <div class="card sip-headline-card sip-summary-card">
+          <h2>${it.name}</h2>
+          <div class="sip-headline-grid">
+            <div><span class="sip-stat-label">Invested</span><span class="sip-stat-value">${fmtRupee(it.invested)}</span></div>
+            <div><span class="sip-stat-label">Current value</span><span class="sip-stat-value">${fmtRupee(it.current_value)}</span></div>
+            <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
+            <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
+            ${rebalStat}
+            ${harvestStat}
+            <div><span class="sip-stat-label">Exit tax (if sold on ${asof})</span><span class="sip-stat-value">${it.liquidation_tax != null ? fmtRupee(it.liquidation_tax) : "—"}</span></div>
+            <div><span class="sip-stat-label">Value after exit tax</span><span class="sip-stat-value ${afterTaxCls}">${it.current_value_after_tax != null ? fmtRupee(it.current_value_after_tax) : "—"}</span></div>
+          </div>
+        </div>`;
     }).join("");
-    const rebalHeader = showRebalances ? "<th>Rebalances</th><th>Tax paid so far</th>" : "";
-    const harvestHeader = showHarvest ? "<th>Harvested (tax-free)</th>" : "";
     const wrap = document.createElement("div");
     wrap.className = "block";
     wrap.innerHTML = `<h3>SIP summary — all plans vs benchmarks</h3>
-      <div class="table-wrap"><table class="matrix">
-        <thead><tr><th>Name</th><th>Invested</th><th>Current value</th><th>Gain</th><th>Gain %</th><th>Exit tax</th><th>Value after exit tax</th>${rebalHeader}${harvestHeader}</tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>
-      <p class="hint" style="margin-top:.5rem;margin-bottom:0">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold on ${asof} (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>`;
+      <div class="sip-summary-cards">${cardsHtml}</div>
+      <p class="hint" style="margin-top:.75rem;margin-bottom:0">"Exit tax" / "value after exit tax" is a hypothetical: what you'd owe and keep if everything held were sold on ${asof} (Sec 112A ₹1.25L/FY equity LTCG exemption and loss carryforward already applied).</p>`;
     container.appendChild(wrap);
   }
 
