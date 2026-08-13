@@ -210,11 +210,11 @@ table.editable input[type=text], table.editable input[type=number], table.editab
 .compare-block { margin-bottom: 2.25rem; }
 
 .sip-headline-card { border-color: var(--accent); }
-.sip-headline-card h2 { font-size: 1.1rem; margin: 0 0 1rem; }
-.sip-headline-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
+.sip-headline-card h2 { font-size: 1rem; margin: 0 0 1rem; white-space: nowrap; }
+.sip-headline-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1.75rem 1.5rem; }
 .sip-headline-grid > div { display: flex; flex-direction: column; gap: .3rem; }
-.sip-stat-label { font-size: .78rem; color: var(--text-dim); }
-.sip-stat-value { font-size: 1.4rem; font-weight: 700; color: var(--text); }
+.sip-stat-label { font-size: .7rem; color: var(--text-dim); white-space: nowrap; }
+.sip-stat-value { font-size: 1.2rem; font-weight: 700; color: var(--text); }
 .sip-stat-value.pos { color: var(--pos); }
 .sip-stat-value.neg { color: var(--neg); }
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
