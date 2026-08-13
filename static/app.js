@@ -664,8 +664,8 @@
   function renderSipSummary(container, items, showRebalances, showHarvest, asof) {
     const cardsHtml = items.map(it => {
       const gain = it.current_value - it.invested;
-      const gainPct = it.invested > 0 ? (gain / it.invested) * 100 : 0;
       const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+      const xirrCls = it.xirr > 0 ? "pos" : (it.xirr < 0 ? "neg" : "");
       const afterTaxGain = it.current_value_after_tax != null ? it.current_value_after_tax - it.invested : null;
       const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
       const rebalStat = showRebalances
@@ -680,7 +680,7 @@
             <div><span class="sip-stat-label">Invested</span><span class="sip-stat-value">${fmtRupee(it.invested)}</span></div>
             <div><span class="sip-stat-label">Current value</span><span class="sip-stat-value">${fmtRupee(it.current_value)}</span></div>
             <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
-            <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
+            <div><span class="sip-stat-label">XIRR</span><span class="sip-stat-value ${xirrCls}">${it.xirr != null ? it.xirr.toFixed(1) + "%" : "—"}</span></div>
             ${rebalStat}
             ${harvestStat}
             <div><span class="sip-stat-label">Exit tax (if sold on ${asof})</span><span class="sip-stat-value">${it.liquidation_tax != null ? fmtRupee(it.liquidation_tax) : "—"}</span></div>
@@ -746,8 +746,8 @@
       const chosenResult = data.plans.find(p => p.name === (chosenPlan?.name));
       if (chosenResult) {
         const gain = chosenResult.current_value - chosenResult.invested;
-        const gainPct = chosenResult.invested > 0 ? (gain / chosenResult.invested) * 100 : 0;
         const cls = gain > 0 ? "pos" : (gain < 0 ? "neg" : "");
+        const xirrCls = chosenResult.xirr > 0 ? "pos" : (chosenResult.xirr < 0 ? "neg" : "");
         const afterTaxGain = chosenResult.current_value_after_tax - chosenResult.invested;
         const afterTaxCls = afterTaxGain > 0 ? "pos" : (afterTaxGain < 0 ? "neg" : "");
         const rebalStat = includeRebalance
@@ -763,7 +763,7 @@
               <div><span class="sip-stat-label">Invested</span><span class="sip-stat-value">${fmtRupee(chosenResult.invested)}</span></div>
               <div><span class="sip-stat-label">Current value</span><span class="sip-stat-value">${fmtRupee(chosenResult.current_value)}</span></div>
               <div><span class="sip-stat-label">Gain</span><span class="sip-stat-value ${cls}">${fmtRupee(gain)}</span></div>
-              <div><span class="sip-stat-label">Gain %</span><span class="sip-stat-value ${cls}">${gainPct.toFixed(1)}%</span></div>
+              <div><span class="sip-stat-label">XIRR</span><span class="sip-stat-value ${xirrCls}">${chosenResult.xirr != null ? chosenResult.xirr.toFixed(1) + "%" : "—"}</span></div>
               ${rebalStat}
               ${harvestStat}
               <div><span class="sip-stat-label">Exit tax (if sold on ${data.asof})</span><span class="sip-stat-value">${fmtRupee(chosenResult.liquidation_tax)}</span></div>

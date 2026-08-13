@@ -354,6 +354,50 @@ def _years_elapsed(d, start):
     return max(years, 0)
 
 
+def _xirr(cashflows):
+    """
+    Annualized return for a series of dated cash flows -- the correct
+    metric for a SIP (money goes in at different times, so a plain
+    invested-vs-current-value CAGR would be misleading). Same figure every
+    real MF platform calls "XIRR".
+
+    cashflows: [(date, amount), ...] with contributions as negative amounts
+    (money leaving the investor) and the final value as one positive amount.
+    Returns the annualized rate as a fraction (0.153 == 15.3%), or None if
+    it can't be solved (e.g. all cash flows the same sign).
+    """
+    if len(cashflows) < 2:
+        return None
+    amounts = [cf for _, cf in cashflows]
+    if not (any(a < 0 for a in amounts) and any(a > 0 for a in amounts)):
+        return None
+    t0 = cashflows[0][0]
+
+    def npv(rate):
+        total = 0.0
+        for d, cf in cashflows:
+            years = (d - t0).days / 365.0
+            total += cf / ((1 + rate) ** years)
+        return total
+
+    lo, hi = -0.999, 10.0
+    f_lo, f_hi = npv(lo), npv(hi)
+    if not (f_lo == f_lo and f_hi == f_hi):  # NaN guard
+        return None
+    if f_lo * f_hi > 0:
+        return None  # no sign change in a sane range -- can't bisect safely
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        f_mid = npv(mid)
+        if abs(f_mid) < 1e-4:
+            return mid
+        if f_lo * f_mid < 0:
+            hi, f_hi = mid, f_mid
+        else:
+            lo, f_lo = mid, f_mid
+    return (lo + hi) / 2
+
+
 def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof, harvest_ltcg=False):
     daily = nav_series.resample("D").last().ffill()
     if start < daily.index[0]:
@@ -364,6 +408,7 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof, harvest_
     units = 0.0
     invested = 0.0
     lots = []  # FIFO tax lots
+    cashflows = []  # for XIRR: (date, amount), contributions negative
     harvested_gain_total = 0.0
     # A benchmark here is always a single equity index fund, so treat it as
     # the "equity" class for tax purposes: 12-month LT threshold, and its own
@@ -383,6 +428,7 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof, harvest_
         units += bought
         lots.append({"date": d, "units": bought, "cost": nav})
         invested += contribution
+        cashflows.append((d, -contribution))
 
         if next_harvest is not None and d >= next_harvest:
             fy = _financial_year(d)
@@ -436,12 +482,15 @@ def _simulate_single_fund(nav_series, monthly_sip, stepup, start, asof, harvest_
         taxable_lt = max(lt_gain - remaining_exemption, 0.0)
         liquidation_tax = taxable_lt * LTCG_RATE + st_gain * STCG_RATE
 
+    xirr = _xirr(cashflows + [(asof, current_value)]) if current_value > 0 else None
+
     return {
         "invested": round(invested, 2),
         "current_value": current_value,
         "liquidation_tax": round(liquidation_tax, 2),
         "current_value_after_tax": round(current_value - liquidation_tax, 2),
         "harvested_gain": round(harvested_gain_total, 2),
+        "xirr": round(xirr * 100, 2) if xirr is not None else None,
         "series": {"dates": series_dates, "values": series_values},
     }
 
@@ -511,6 +560,7 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
     units = {k: 0.0 for k in navs}
     lots = {k: [] for k in navs}  # FIFO tax lots: [{"date", "units", "cost"}]
     invested = 0.0
+    cashflows = []  # for XIRR: (date, amount), contributions negative
     rebalances = 0
     tax_paid = 0.0
     harvested_gain_total = 0.0
@@ -549,6 +599,7 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
             continue  # none of this plan's picks exist yet at this date -- skip the contribution
         contribution = monthly_sip * ((1 + stepup) ** _years_elapsed(d, start))
         invested += contribution
+        cashflows.append((d, -contribution))
         value = 0.0
         for k in navs:
             nav = DAILY[k].asof(d)
@@ -763,6 +814,8 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
     taxable_equity_lt = max(equity_lt_gain - remaining_exemption, 0.0)
     liquidation_tax = taxable_equity_lt * LTCG_RATE + other_lt_gain * LTCG_RATE + net_st_gain * STCG_RATE
 
+    xirr = _xirr(cashflows + [(asof, current_value)]) if current_value > 0 else None
+
     return {
         "invested": round(invested, 2),
         "current_value": round(current_value, 2),
@@ -771,6 +824,7 @@ def _simulate_portfolio(picks, target, monthly_sip, stepup, start, asof, rebalan
         "rebalances": rebalances,
         "tax_paid": round(tax_paid, 2),
         "harvested_gain": round(harvested_gain_total, 2),
+        "xirr": round(xirr * 100, 2) if xirr is not None else None,
         "series": {"dates": series_dates, "values": series_values},
     }
 
